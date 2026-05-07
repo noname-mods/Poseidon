@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "id": "poseidon",
+  "version": "${version}",
+  "name": "Poseidon",
+  "description": "Client-side automation helper for fishing.",
+  "authors": ["NoName_"],
+  "license": "LGPL-3",
+  "icon": "assets/poseidon/icon.png",
+  "contact": {
+    "sources": "https://github.com/noname-mods/Poseidon"
+  },
+  "environment": "client",
+  "entrypoints": {
+    "client": ["com.poseidon.PoseidonMod"],
+    "modmenu": ["com.poseidon.modmenu.PoseidonModMenuPlugin"]
+  },
+  "mixins": ["poseidon.mixins.json"],
+  "depends": {
+    "fabricloader": ">=0.18.0",
+    "minecraft": "~1.21.11",
+    "java": ">=21",
+    "fabric-api": "*",
+    "playerapi": "*",
+    "yet_another_config_lib_v3": "*"
+  },
+  "suggests": {
+    "modmenu": "*"
+  }
+}

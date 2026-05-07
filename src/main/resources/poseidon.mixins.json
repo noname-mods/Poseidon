@@ -1,0 +1,11 @@
+{
+  "required": true,
+  "package": "com.poseidon.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "client": [
+    "MouseClickMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}
