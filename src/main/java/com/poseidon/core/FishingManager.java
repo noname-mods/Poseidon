@@ -236,7 +236,7 @@ public class FishingManager {
                 // before 10 ticks), causing the old inner callback guard to skip everything.
                 pendingSuppressRecast = false;
                 pendingStopBot        = false;
-                        int decisionTicks = cfg.getRecastDecisionTicks();
+                int decisionTicks = cfg.getRecastDecisionTicks();
                 PoseidonLogger.getInstance().logInfo(
                         "[recast] waiting " + decisionTicks + " ticks for triggers");
 

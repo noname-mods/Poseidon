@@ -261,6 +261,7 @@ public class FishingConfig {
                     this.recastDelayMaxMs   = loaded.recastDelayMaxMs  > 0 ? loaded.recastDelayMaxMs  : 1500;
                     this.debugMode          = loaded.debugMode;
                     this.logLevel           = loaded.logLevel;
+                    PoseidonLogger.getInstance().setLogLevel(this.logLevel);
 
                     if (loaded.biteAlertSound != null)
                         this.biteAlertSound.mergeFrom(loaded.biteAlertSound, AlarmSound.defaultBite());

@@ -33,7 +33,6 @@ public class PoseidonHudRenderer {
     private PoseidonHudRenderer() {}
 
     public static boolean isHudVisible() { return hudVisible; }
-    public static void toggleHud()       { hudVisible = !hudVisible; }
     public static void setHudVisible(boolean v) { hudVisible = v; }
 
     public static void render(DrawContext ctx, RenderTickCounter tick) {

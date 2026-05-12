@@ -28,7 +28,7 @@ public class PoseidonConfigScreen {
                         .tooltip(Text.literal("Controls how Poseidon identifies a fish bite."))
 
                         .option(Option.<Double>createBuilder()
-                                .name(Text.literal("Armor Stand Radius"))
+                                .name(Text.literal("Detection Radius"))
                                 .description(OptionDescription.of(Text.literal(
                                         "How many blocks around the bobber to scan for the !!! signal.\n" +
                                         "Increase if bites are missed; decrease to reduce false positives.")))
@@ -162,8 +162,12 @@ public class PoseidonConfigScreen {
                         .option(Option.<Boolean>createBuilder()
                                 .name(Text.literal("Update Check"))
                                 .description(OptionDescription.of(Text.literal(
-                                        "On every world join, Poseidon checks GitHub for a newer release.\n" +
-                                        "If one is found, a single chat message is shown. No download occurs.\n\n" +
+                                        "On every world join, Poseidon contacts GitHub to check for a newer release.\n" +
+                                        "If one is found, a single chat message is shown with the version and a link.\n" +
+                                        "Nothing is downloaded automatically.\n\n" +
+                                        "How it works: the check reads the tag of the latest GitHub release and\n" +
+                                        "compares it against the installed version. The release title does not\n" +
+                                        "matter — only the tag (e.g. v1.2.0 or 1.2.0) is used.\n\n" +
                                         "Disable this if you are offline, on a restricted network, or\n" +
                                         "simply do not want the notification.")))
                                 .binding(true, cfg::isUpdateCheckEnabled, cfg::setUpdateCheckEnabled)
