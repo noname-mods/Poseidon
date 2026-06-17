@@ -1,5 +1,6 @@
 package com.poseidon.core;
 
+
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonObject;
@@ -11,11 +12,7 @@ import java.io.Writer;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
-import java.util.stream.Collectors;
 
 public class FishingConfig {
 
@@ -39,8 +36,17 @@ public class FishingConfig {
      *   5 — despawnWarningEnabled / despawnWarningMinutes / despawnWarningSound added
      *   6 — hookStuckDetectionEnabled / hookStuckMaxDistance / hookStuckSound added
      *   7 — added updateCheckEnabled (default true)
+     *   8 — seaCreatureCapByArea removed; cap standardised to SEA_CREATURE_CAP = 10 (Hypixel-wide)
+     *   9 — baitHudVisible / baitLowThreshold / baitLowAlertSound / baitSwitchAlertSound added
+     *  10 — rebootAlertEnabled / rebootAlertSound / fishingStatsHudVisible added
+     *  11 — hookStuckAutoRecast added (separate from global autoRecast)
+     *  12 — slugfishMode / slugPet added
+     *  13 — goldenFishAlertEnabled / goldenFishPhrase / goldenFishTitleText / goldenFishSound added
      */
-    private static final int CURRENT_VERSION = 7;
+    private static final int CURRENT_VERSION = 13;
+
+    /** Hypixel-standardised sea creature cap — same on every island. */
+    public static final int SEA_CREATURE_CAP = 10;
     private int configVersion = CURRENT_VERSION;
 
     // ── Detection ─────────────────────────────────────────────────────────────
@@ -74,11 +80,6 @@ public class FishingConfig {
     private boolean trackSeaCreatures  = true;
     /** Radius around the bobber to scan for new sea creature name plates. */
     private double  creatureScanRadius = 12.0;
-    /**
-     * Per-island cap values. Hub is used as the fallback for any unlisted area.
-     * Keys match the exact area strings from the Hypixel tab list.
-     */
-    private Map<String, Integer> seaCreatureCapByArea = defaultCapsByArea();
     private AlarmSound seaCreatureCapSound = new AlarmSound(
             "minecraft:entity.player.levelup", 1.0, 0.8, 10, 20);
 
@@ -99,14 +100,14 @@ public class FishingConfig {
     private boolean    hookStuckDetectionEnabled = true;
     /** Horizontal drift threshold in blocks. Normal bobbing is < 0.2 blocks. */
     private double     hookStuckMaxDistance      = 1.5;
+    /**
+     * When true, automatically reel in and recast after drift is detected,
+     * independent of the global {@link #autoRecast} setting.
+     * The alert sound still plays regardless of this flag.
+     */
+    private boolean    hookStuckAutoRecast       = true;
     private AlarmSound hookStuckSound            = new AlarmSound(
             "minecraft:entity.villager.no", 1.0, 1.2, 2, 10);
-
-    private static Map<String, Integer> defaultCapsByArea() {
-        Map<String, Integer> m = new LinkedHashMap<>();
-        for (String area : KNOWN_AREAS) m.put(area, 10);
-        return m;
-    }
 
     // ── Chat triggers ─────────────────────────────────────────────────────────
     /** Ordered list of trigger levels. First match wins. */
@@ -114,6 +115,62 @@ public class FishingConfig {
 
     // ── Update checker ────────────────────────────────────────────────────────
     private boolean updateCheckEnabled = true;
+
+    // ── Bait monitoring ──────────────────────────────────────────────────────────
+    private boolean    baitHudVisible       = true;
+    private int        baitLowThreshold     = 5;
+    private AlarmSound baitLowAlertSound    = new AlarmSound(
+            "minecraft:entity.experience_orb.pickup", 1.0, 0.5, 3, 20);
+    private AlarmSound baitSwitchAlertSound = new AlarmSound(
+            "minecraft:block.bell.use", 1.0, 0.8, 2, 20);
+
+    // -- Reboot alert ------------------------------------------------------
+    private boolean    rebootAlertEnabled = true;
+    private AlarmSound rebootAlertSound   = new AlarmSound(
+            "minecraft:block.bell.use", 1.0, 1.0, 300, 40);
+
+    // -- Fishing stats HUD ------------------------------------------------
+    private boolean fishingStatsHudVisible = true;
+
+    // ── Slugfish mode ─────────────────────────────────────────────────────────
+    /**
+     * When true, the bot ignores all reel-in signals until the slugfish timer
+     * has elapsed since the cast (21 s normally, 11 s with the Slug Pet).
+     * Should only be enabled while actively farming the Slugfish trophy fish.
+     */
+    private boolean slugfishMode = false;
+    /**
+     * Halves the slugfish timer to 11 s (assumes a level-100 Slug Pet is
+     * equipped; Poseidon does not verify the pet for you).
+     */
+    private boolean slugPet = false;
+
+    // ── Golden Fish alert ───────────────────────────────────────────────────────
+    /**
+     * When true, Poseidon watches chat for the Golden Fish message. On a match it
+     * shows a golden title card, stops the bot, and reels in any active cast so
+     * the player can manually catch the Golden Fish. The player re-enables the bot
+     * afterwards to resume normal fishing. Default OFF — when disabled this feature
+     * does nothing.
+     *
+     * <p>Unlike the configurable chat triggers, this is checked outside the
+     * post-reel catch window because the Golden Fish announcement can arrive at
+     * any point while fishing, not just right after a reel-in.</p>
+     */
+    private boolean goldenFishAlertEnabled = false;
+    /**
+     * Comma-separated substrings identifying the Golden Fish chat message
+     * (case-insensitive; any one matching fires the alert). Default matches the
+     * distinctive middle of Hypixel's announcement —
+     * "You spot a Golden Fish surface from beneath the lava/waves!" — so it covers
+     * both the lava and water variants without risking false fires on other chat.
+     */
+    private String  goldenFishPhrase = "spot a Golden Fish surface";
+    /** Title overlay text shown when the alert fires. Supports § / & colour codes. */
+    private String  goldenFishTitleText = "§6§lGOLDEN FISH";
+    /** Alert sound played when the Golden Fish is detected. */
+    private AlarmSound goldenFishSound = new AlarmSound(
+            "minecraft:entity.player.levelup", 1.0, 1.2, 4, 20);
 
     // ── Developer ─────────────────────────────────────────────────────────────
     private boolean debugMode = false;
@@ -269,9 +326,6 @@ public class FishingConfig {
                     this.trackSeaCreatures  = loaded.trackSeaCreatures;
                     this.creatureScanRadius = loaded.creatureScanRadius > 0 ? loaded.creatureScanRadius : 12.0;
 
-                    if (loaded.seaCreatureCapByArea != null && !loaded.seaCreatureCapByArea.isEmpty())
-                        this.seaCreatureCapByArea = loaded.seaCreatureCapByArea;
-
                     if (loaded.seaCreatureCapSound != null)
                         this.seaCreatureCapSound.mergeFrom(loaded.seaCreatureCapSound,
                                 new AlarmSound("minecraft:entity.player.levelup", 1.0, 0.8, 10, 20));
@@ -288,11 +342,37 @@ public class FishingConfig {
 
                     this.hookStuckDetectionEnabled = loaded.hookStuckDetectionEnabled;
                     this.hookStuckMaxDistance      = loaded.hookStuckMaxDistance > 0 ? loaded.hookStuckMaxDistance : 1.5;
+                    this.hookStuckAutoRecast       = loaded.hookStuckAutoRecast;
                     if (loaded.hookStuckSound != null)
                         this.hookStuckSound.mergeFrom(loaded.hookStuckSound,
                                 new AlarmSound("minecraft:entity.villager.no", 1.0, 1.2, 2, 10));
 
                     this.updateCheckEnabled = loaded.updateCheckEnabled;
+
+                    this.baitHudVisible   = loaded.baitHudVisible;
+                    this.baitLowThreshold = loaded.baitLowThreshold > 0 ? loaded.baitLowThreshold : 5;
+                    if (loaded.baitLowAlertSound != null)
+                        this.baitLowAlertSound.mergeFrom(loaded.baitLowAlertSound,
+                                new AlarmSound("minecraft:entity.experience_orb.pickup", 1.0, 0.5, 3, 20));
+                    if (loaded.baitSwitchAlertSound != null)
+                        this.baitSwitchAlertSound.mergeFrom(loaded.baitSwitchAlertSound,
+                                new AlarmSound("minecraft:block.bell.use", 1.0, 0.8, 2, 20));
+                    this.rebootAlertEnabled = loaded.rebootAlertEnabled;
+                    if (loaded.rebootAlertSound != null)
+                        this.rebootAlertSound.mergeFrom(loaded.rebootAlertSound,
+                                new AlarmSound("minecraft:block.bell.use", 1.0, 1.0, 300, 40));
+                    this.fishingStatsHudVisible = loaded.fishingStatsHudVisible;
+                    this.slugfishMode           = loaded.slugfishMode;
+                    this.slugPet                = loaded.slugPet;
+
+                    this.goldenFishAlertEnabled = loaded.goldenFishAlertEnabled;
+                    if (loaded.goldenFishPhrase != null && !loaded.goldenFishPhrase.isBlank())
+                        this.goldenFishPhrase = loaded.goldenFishPhrase;
+                    if (loaded.goldenFishTitleText != null && !loaded.goldenFishTitleText.isBlank())
+                        this.goldenFishTitleText = loaded.goldenFishTitleText;
+                    if (loaded.goldenFishSound != null)
+                        this.goldenFishSound.mergeFrom(loaded.goldenFishSound,
+                                new AlarmSound("minecraft:entity.player.levelup", 1.0, 1.2, 4, 20));
                 }
             }
         } catch (Exception e) {
@@ -323,7 +403,23 @@ public class FishingConfig {
         if (version < 5) json = migrateV4toV5(json);
         if (version < 6) json = migrateV5toV6(json);
         if (version < 7) json = migrateV6toV7(json);
+        if (version < 8) json = migrateV7toV8(json);
+        if (version < 9) json = migrateV8toV9(json);
+        if (version < 10) json = migrateV9toV10(json);
+        if (version < 11) json = migrateV10toV11(json);
+        if (version < 12) json = migrateV11toV12(json);
+        if (version < 13) json = migrateV12toV13(json);
         json.addProperty("configVersion", CURRENT_VERSION);
+        return json;
+    }
+
+    /** v12 -> v13: Golden Fish alert fields added. goldenFishAlertEnabled defaults
+     *  false (GSON handles that); inject the phrase/title defaults for clarity so
+     *  an upgraded config shows the intended values rather than empty strings. */
+    private static JsonObject migrateV12toV13(JsonObject json) {
+        if (!json.has("goldenFishAlertEnabled")) json.addProperty("goldenFishAlertEnabled", false);
+        if (!json.has("goldenFishPhrase"))       json.addProperty("goldenFishPhrase", "spot a Golden Fish surface");
+        if (!json.has("goldenFishTitleText"))    json.addProperty("goldenFishTitleText", "§6§lGOLDEN FISH");
         return json;
     }
 
@@ -350,6 +446,39 @@ public class FishingConfig {
     /** v6 → v7: updateCheckEnabled added (default true). */
     private static JsonObject migrateV6toV7(JsonObject json) {
         if (!json.has("updateCheckEnabled")) json.addProperty("updateCheckEnabled", true);
+        return json;
+    }
+
+    /** v7 → v8: seaCreatureCapByArea removed; cap is now the Hypixel-standard 5 on all islands. */
+    private static JsonObject migrateV7toV8(JsonObject json) {
+        json.remove("seaCreatureCapByArea");
+        return json;
+    }
+
+    /** v8 -> v9: bait monitoring fields added (GSON boolean defaults false, inject true for baitHudVisible). */
+    private static JsonObject migrateV8toV9(JsonObject json) {
+        if (!json.has("baitHudVisible"))   json.addProperty("baitHudVisible", true);
+        if (!json.has("baitLowThreshold")) json.addProperty("baitLowThreshold", 5);
+        return json;
+    }
+
+    /** v9 -> v10: rebootAlertEnabled + fishingStatsHudVisible added (GSON boolean defaults false, inject true). */
+    private static JsonObject migrateV9toV10(JsonObject json) {
+        if (!json.has("rebootAlertEnabled"))    json.addProperty("rebootAlertEnabled", true);
+        if (!json.has("fishingStatsHudVisible")) json.addProperty("fishingStatsHudVisible", true);
+        return json;
+    }
+
+    /** v10 -> v11: hookStuckAutoRecast added (GSON boolean defaults false, inject true). */
+    private static JsonObject migrateV10toV11(JsonObject json) {
+        if (!json.has("hookStuckAutoRecast")) json.addProperty("hookStuckAutoRecast", true);
+        return json;
+    }
+
+    /** v11 -> v12: slugfishMode / slugPet added (both default false — GSON handles this correctly,
+     *  but the migration is here for documentation and version tracking). */
+    private static JsonObject migrateV11toV12(JsonObject json) {
+        // No data transformation needed; GSON already defaults missing booleans to false.
         return json;
     }
 
@@ -425,26 +554,6 @@ public class FishingConfig {
     public double getCreatureScanRadius() { return creatureScanRadius; }
     public void setCreatureScanRadius(double v) { creatureScanRadius = v; save(); }
 
-    /**
-     * Returns the cap for the given area string (as read from the tab list).
-     * Falls back to the Hub cap for any unknown area. Hub itself falls back to 10.
-     */
-    public int getCapForArea(String area) {
-        if (area == null || area.isBlank()) return getHubCap();
-        Integer cap = seaCreatureCapByArea.get(area);
-        return cap != null ? Math.max(1, cap) : getHubCap();
-    }
-
-    private int getHubCap() {
-        Integer cap = seaCreatureCapByArea.get("Hub");
-        return cap != null ? Math.max(1, cap) : 10;
-    }
-
-    public void setCapForArea(String area, int v) {
-        seaCreatureCapByArea.put(area, Math.max(1, v));
-        save();
-    }
-
     public AlarmSound getSeaCreatureCapSound() { return seaCreatureCapSound; }
 
     public boolean isDespawnWarningEnabled() { return despawnWarningEnabled; }
@@ -464,10 +573,63 @@ public class FishingConfig {
     public double getHookStuckMaxDistance() { return hookStuckMaxDistance; }
     public void setHookStuckMaxDistance(double v) { hookStuckMaxDistance = v; save(); }
 
+    public boolean isHookStuckAutoRecast() { return hookStuckAutoRecast; }
+    public void setHookStuckAutoRecast(boolean v) { hookStuckAutoRecast = v; save(); }
+
     public AlarmSound getHookStuckSound() { return hookStuckSound; }
 
     public boolean isUpdateCheckEnabled() { return updateCheckEnabled; }
     public void setUpdateCheckEnabled(boolean v) { updateCheckEnabled = v; save(); }
+
+    public boolean isBaitHudVisible() { return baitHudVisible; }
+    public void setBaitHudVisible(boolean v) { baitHudVisible = v; save(); }
+
+    public int getBaitLowThreshold() { return baitLowThreshold; }
+    public void setBaitLowThreshold(int v) { baitLowThreshold = v; save(); }
+
+    public AlarmSound getBaitLowAlertSound()    { return baitLowAlertSound; }
+    public AlarmSound getBaitSwitchAlertSound() { return baitSwitchAlertSound; }
+
+    public boolean isRebootAlertEnabled()   { return rebootAlertEnabled; }
+    public void setRebootAlertEnabled(boolean v) { rebootAlertEnabled = v; save(); }
+    public AlarmSound getRebootAlertSound() { return rebootAlertSound; }
+
+    public boolean isFishingStatsHudVisible()  { return fishingStatsHudVisible; }
+    public void setFishingStatsHudVisible(boolean v) { fishingStatsHudVisible = v; save(); }
+
+    public boolean isSlugfishMode() { return slugfishMode; }
+    public void setSlugfishMode(boolean v) { slugfishMode = v; save(); }
+
+    public boolean isSlugPet() { return slugPet; }
+    public void setSlugPet(boolean v) { slugPet = v; save(); }
+
+    public boolean isGoldenFishAlertEnabled() { return goldenFishAlertEnabled; }
+    public void setGoldenFishAlertEnabled(boolean v) { goldenFishAlertEnabled = v; save(); }
+
+    public String getGoldenFishPhrase() { return goldenFishPhrase; }
+    public void setGoldenFishPhrase(String v) { goldenFishPhrase = v; save(); }
+
+    public String getGoldenFishTitleText() { return goldenFishTitleText; }
+    public void setGoldenFishTitleText(String v) { goldenFishTitleText = v; save(); }
+
+    public AlarmSound getGoldenFishSound() { return goldenFishSound; }
+
+    /**
+     * Returns true if the given chat text matches the configured Golden Fish
+     * phrase. Mirrors {@link TriggerLevel#matches}: comma-separated, case-
+     * insensitive substring match where any one term matching counts.
+     */
+    public boolean matchesGoldenFishPhrase(String chatText) {
+        if (!goldenFishAlertEnabled || goldenFishPhrase == null || goldenFishPhrase.isBlank()) {
+            return false;
+        }
+        String lower = chatText.toLowerCase();
+        for (String pat : goldenFishPhrase.split(",")) {
+            String p = pat.trim().toLowerCase();
+            if (!p.isEmpty() && lower.contains(p)) return true;
+        }
+        return false;
+    }
 
     public boolean isDebugMode() { return debugMode; }
     public void setDebugMode(boolean v) { debugMode = v; save(); }

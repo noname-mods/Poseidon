@@ -1,7 +1,9 @@
 # Poseidon
 
-A client-side Fabric mod that automates rod fishing — cast, wait for the bite, reel in, and recast, all with configurable human-like timing.  
+A client-side Fabric mod that automates rod fishing on Hypixel Skyblock — cast, wait for the bite, reel in, and recast, all with configurable human-like timing.  
 Named after the Greek god of the sea.
+
+**GitHub:** <https://github.com/noname-mods/Poseidon>
 
 > **Requires [PlayerAPI](https://github.com/noname-mods/PlayerAPI) and [YetAnotherConfigLib](https://modrinth.com/mod/yacl) to run.**  
 > [ModMenu](https://modrinth.com/mod/modmenu) is optional — it adds a settings button to the mod list.
@@ -11,33 +13,60 @@ Named after the Greek god of the sea.
 ## Features
 
 ### Smart Bite Detection
-Poseidon scans nearby text for the `!!!` signal servers send when your bobber gets a bite. When detected, it reels in after a configurable human reaction delay with optional randomness so the timing never looks mechanical.
+Poseidon scans nearby entities for the `!!!` signal the server places when your bobber gets a bite. When detected it reels in after a configurable, randomised human reaction delay so the timing never looks mechanical.
 
 ### Auto-Recast
-After every catch the rod is recast automatically. A configurable decision window gives server chat time to arrive before committing, so triggers that suppress or stop the recast always fire in time. Recast delay is independently configurable (min/max ms) and can be disabled entirely.
-
-### Ping-Aware Decision Window
-The decision window — how long Poseidon waits for a chat trigger before recasting — is exposed as a player setting so you can tune it to match your connection.
+After every catch the rod is automatically recast. A configurable decision window gives server chat time to arrive before committing, so chat triggers that suppress or stop the recast always fire in time. Recast delay is independently randomisable (min/max ms) and can be disabled entirely for manual-cast mode.
 
 ### Chat Triggers
-Define keyword triggers that match incoming chat messages. Each trigger can:
+Define up to 5 keyword triggers that match incoming catch messages. Each trigger can:
 - Play a custom sound
-- Show a title on screen
+- Show a colour-formatted title on screen (`&d` / `§d` codes fully supported)
 - Suppress the next auto-recast
 - Stop the bot entirely (HUD stays open)
 
-### Tracked Entity Warnings
-Poseidon tracks entities you fish up and enforces configurable per-area caps. When you hit the cap it alerts you. Entities that have been alive too long (configurable, default ~5 min) trigger a despawn warning so you can act before they vanish.
+Triggers only fire within 10 seconds of a reel-in and are filtered to Hypixel catch-related messages (`§a` catch lines, `§e` double hook announcements, `⛃` treasure messages), so unrelated chat never causes a false trigger.
+
+**Server-message gate.** Every chat alert in Poseidon — chat triggers, the reboot alert, and the Golden Fish alert — reacts only to messages from the server, never to player chat. A player typing a trigger phrase (or the Golden Fish line) in chat can't drive the bot. Signed player messages are rejected by their sender, and Hypixel-style reformatted player chat (`[rank] Name: …`, `Guild > …`, DMs) is rejected by shape.
+
+### Bait Monitoring
+Reads the bait from your Fishing Bag (last hotbar slot) at cast time:
+- **HUD row** shows the current bait type and count
+- **Low-bait alert** fires a sound when the count drops to or below a configurable threshold
+- **Bait-switch alert** fires when the bait type changes mid-session
+
+### Fishing Stats HUD
+Pulls Double Hook Chance, Sea Creature Chance, Fishing Speed, and Treasure Chance from the Hypixel tab list and displays them live in the HUD panel.
+
+### Server Reboot Alert
+Detects Hypixel's scheduled-reboot server message and plays a looping alarm until you warp to a different area. The HUD accent bar turns red and a warning row appears at the top of the panel so you can't miss it.
+
+### Golden Fish Alert *(optional, off by default)*
+Watches chat for the Golden Fish surface message. When it appears, Poseidon shows a golden title card, plays an alert sound, reels in any active cast, and stops the bot — handing control to you so you can catch the Golden Fish manually. Re-enable the bot afterwards to resume. The trigger phrase, title text, and sound are all configurable in the Golden Fish config tab.
+
+### Sea Creature Tracking
+After each reel-in, Poseidon scans the area for `⚓` nameplate entities. Tracked creatures are shown in the HUD and you get an alert when you hit the Hypixel cap of 10. A second alert fires when a creature approaches its despawn timer (~6 minutes) so you know to kill it before it vanishes. Nameplate entity refreshes (same creature, new ID) are detected by position and handled correctly — no false double-counts.
 
 ### Bobber Drift Detection
-If your hook attaches to a moving entity the bobber drifts away from where it landed. Poseidon detects drift beyond a configurable radius after a short settle period, reels in, and recasts — keeping the bot from stalling on a moving target.
+If the hook attaches to a moving entity, the bobber drifts away from where it landed. Poseidon detects drift beyond a configurable horizontal threshold (after a 1-second settle period), plays an alert, reels in, and optionally recasts — keeping the bot from stalling on a moving target. Auto-recast on drift is a separate toggle from the global auto-recast setting.
+
+### Slugfish Mode
+Delays all reel-ins for 21 seconds after each cast (11 seconds with a max-level Slug Pet equipped). Slugfish only bite after ≥ 20 seconds, so this prevents accidentally catching regular creatures while targeting the Slugfish trophy fish. The HUD shows a live countdown and turns green when the timer has elapsed.  
+⚠ *Only enable while actively farming the Slugfish trophy fish.*
+
+### GUI-Close Lock
+After the player closes any GUI screen, the bot waits a random 0.75 – 2.5 second delay before reacting to bite signals. Instant reactions right after closing a menu look suspicious — this eliminates that pattern entirely.
 
 ### Live HUD
-An in-game overlay (toggleable keybind) shows:
-- Bot active/inactive state
-- Bobber status — grey: no bobber, yellow: bite signal detected, green: bobber idle
-- Last catch info and active entity count
-- Live countdown text when a bite signal is present
+An in-game overlay (default key: **H**) shows:
+- Bot on/off and current state
+- Bobber status — None / Detected / live countdown text
+- Bait name and count
+- Slugfish countdown when in Slugfish mode
+- Sea creature count vs. cap, and current area
+- Fishing stats (DHC, SCC, Speed, Treasure)
+- Server reboot warning when detected
+- Last 5 log lines
 
 ### Fully Configurable
 All timings, thresholds, sounds, and toggles are exposed through a YACL config screen. Open it from ModMenu, the `/poseidon` command, or a keybind. No file editing required.
@@ -60,7 +89,7 @@ Type `/poseidon` in chat to open the config screen directly.
 
 ## Installation
 
-1. Install [Fabric Loader](https://fabricmc.net/) for Minecraft 1.21.11
+1. Install [Fabric Loader](https://fabricmc.net/) for Minecraft 26.1.2
 2. Install [Fabric API](https://modrinth.com/mod/fabric-api)
 3. Install [PlayerAPI](https://github.com/noname-mods/PlayerAPI)
 4. Install [YetAnotherConfigLib](https://modrinth.com/mod/yacl)
@@ -73,19 +102,31 @@ Type `/poseidon` in chat to open the config screen directly.
 
 | Minecraft | Fabric Loader | Java |
 |---|---|---|
-| 1.21.11 | ≥ 0.18.4 | 21 |
+| 26.1.2 | ≥ 0.19.2 | 21 |
+
+---
+
+## Minecraft Version Support
+
+This mod targets **one Minecraft version at a time.** When it updates to a new Minecraft version, **previous versions receive zero further support** — no backports, no bug fixes, and a release is never published with support for multiple Minecraft versions at once.
+
+- Want the newest features? You must be on the mod's currently supported Minecraft version.
+- Want to stay on an older Minecraft version? Stay on that version's last release — it won't be updated.
+
+The in-game update checker is Minecraft-version aware: if the latest release targets a different Minecraft version than you're running, it tells you so instead of prompting you to install an incompatible build.
 
 ---
 
 ## For Developers
+
 # Poseidon — Design & Documentation
 
-**Version:** current (config schema v6)
-**Platform:** Fabric 1.21.11, Java 21
-**Dependencies:** PlayerAPI, Fabric API, YACL v3, ModMenu (optional)
-**Mod ID:** `poseidon`
-**Entry point:** `com.poseidon.PoseidonMod`
-**Config file:** `<game_dir>/config/poseidon/config.json`
+**Version:** 1.1.0 (config schema v13)  
+**Platform:** Fabric 26.1.2, Java 21  
+**Dependencies:** PlayerAPI, Fabric API, YACL v3, ModMenu (optional)  
+**Mod ID:** `poseidon`  
+**Entry point:** `com.poseidon.PoseidonMod`  
+**Config file:** `<game_dir>/config/poseidon/config.json`  
 **Log file:** `<game_dir>/config/poseidon/poseidon.log`
 
 ---
@@ -127,7 +168,7 @@ Poseidon is a client-side fishing automation mod designed for Hypixel Skyblock. 
 5. Optionally track sea creatures that spawn after each catch
 6. Fire sound alerts and title overlays on configured chat patterns
 
-Poseidon depends on PlayerAPI for all Minecraft interaction and scheduling. It never calls Minecraft APIs directly for player input — everything goes through `MovementActions`, `Scheduler`, `TabListInfo`, `SoundActions`, `DisplayActions`, and `PlayerAPIEvents`.
+Poseidon depends on PlayerAPI for all Minecraft interaction and scheduling. It never calls Minecraft APIs directly for player input — everything goes through `MovementActions`, `Scheduler`, `TabListInfo`, `SoundActions`, `PlayerAPIEvents`.
 
 ---
 
@@ -139,29 +180,34 @@ PoseidonMod (entry point)
 ├── registers /poseidon command
 ├── subscribes to PlayerAPIEvents.TICK → onTick()
 ├── subscribes to PlayerAPIEvents.CHAT_RECEIVED → onChatReceived()
+├── subscribes to PlayerAPIEvents.WORLD_JOIN → onWorldJoin()
 └── registers HudRenderCallback → PoseidonHudRenderer.render()
 
 onTick() each game tick:
 ├── opens config screen if openConfigNextTick flag set
 ├── FishingManager.tick() — core state machine
+├── RebootAlertManager.tick() — drives reboot alarm loop
 └── handleKeybinds() — polls keybind presses
 
 onChatReceived(sender, message):
-└── checks message against FishingConfig.getTriggerLevels()
-    └── first match: plays sound, shows title, calls FishingManager.notifyTriggerFired()
+├── RebootAlertManager.onChatReceived() — always runs
+├── Guard: isInCatchWindow() — only within 10s of a reel-in
+├── Guard: isCatchMessage() — §a, §e, or ⛃-prefixed only
+└── iterates FishingConfig.getTriggerLevels(), first match fires
 
 FishingManager.tick() (only when active):
-├── IDLE state:     waits for bobber to appear → transitions to WAITING
-├── WAITING state:  runs detectBite() every tick
-│   ├── bite found → saves bobber position, → BITING, schedules reel-in
-│   └── no bite:  updates nearbyText, runs checkHookStuck()
-├── BITING state:   waits for scheduled reel-in; reacts to bobber loss
-└── REELING state:  waits for bobber to disappear
-    ├── Scheduler fires (delayed): sends "use" key, scans for creatures
-    └── Scheduler fires (10 ticks): resets to IDLE, triggers recast decision
+├── GUI-close lock: tracks open→closed transitions, arms random delay
+├── IDLE state:    waits for bobber; idle watchdog retries failed recasts
+├── WAITING state: runs detectBite() every tick
+│   ├── bite found + guiLocked → skip (retry next tick)
+│   ├── bite found + slugfish timer not elapsed → skip (retry next tick)
+│   ├── bite found → saves bobber pos → BITING, schedules reel-in
+│   └── no bite: updates nearbyText, runs checkHookStuck()
+├── BITING state:  waits for scheduled reel-in; reacts to bobber loss
+└── REELING state: waits for bobber to disappear
 ```
 
-**Threading model:** Everything runs on the main Minecraft client thread. `PlayerAPIEvents.TICK` fires on the client tick. `Scheduler` callbacks also execute on the client thread. No background threads are used other than the file I/O in `PoseidonLogger`.
+**Threading model:** Everything runs on the main Minecraft client thread. `PlayerAPIEvents.TICK` fires on the client tick. `Scheduler` callbacks also execute on the client thread. The update checker uses a daemon thread for HTTP. `PoseidonLogger` file I/O also runs on a background thread (append mode).
 
 ---
 
@@ -174,12 +220,13 @@ com.poseidon
 │   ├── FishingState.java         — enum: IDLE, WAITING, BITING, REELING
 │   ├── FishingManager.java       — singleton state machine, all fishing logic
 │   ├── FishingConfig.java        — singleton config, persistence, migrations
+│   ├── RebootAlertManager.java   — detects Hypixel reboot messages, drives alarm loop
 │   └── PoseidonLogger.java       — singleton logger, in-memory ring buffer + file output
 ├── gui/
 │   ├── PoseidonHudRenderer.java  — HUD overlay drawn each frame
 │   └── PoseidonConfigScreen.java — YACL config screen builder
 ├── mixin/
-│   └── MouseClickMixin.java      — blocks right-click during active cast
+│   └── MouseClickMixin.java      — blocks right-click during active cast (not in GUIs)
 └── modmenu/
     └── PoseidonModMenuPlugin.java — ModMenu integration
 ```
@@ -190,30 +237,28 @@ com.poseidon
 
 `com.poseidon.core.FishingState`
 
-The four states of the fishing loop:
-
 | State | Meaning |
 |-------|---------|
-| `IDLE` | Bot inactive, or active but no rod has been cast yet. No bobber present. |
-| `WAITING` | Bobber is in the water. Scanning every tick for the `!!!` bite signal entity. Also watching for nearby countdown text and hook drift. |
-| `BITING` | The `!!!` signal was detected. The reaction delay timer is counting down via `Scheduler`. Reel-in has not been sent yet. |
-| `REELING` | The `tapKey("use", 100)` command has been sent to reel in. Waiting for the bobber entity to disappear, which signals the catch is complete. |
+| `IDLE` | Bot active but no rod cast yet. No bobber present. |
+| `WAITING` | Bobber in water. Scanning every tick for the `!!!` bite signal. Also watching for nearby countdown text and hook drift. |
+| `BITING` | The `!!!` signal was detected. Reaction delay counting down via `Scheduler`. |
+| `REELING` | The `tapKey("use", 100)` command has been sent. Waiting for the bobber entity to disappear. |
 
 **Transitions:**
 ```
-IDLE → WAITING     when hasBobber becomes true
-WAITING → BITING   when detectBite() returns true
-WAITING → IDLE     if bobber disappears while watching
-BITING → REELING   when scheduled reel-in fires
-BITING → IDLE      if bobber disappears before reel-in fires
-REELING → IDLE     after 10-tick reset (or if bobber disappears)
+IDLE    → WAITING   when hasBobber becomes true
+WAITING → BITING    when detectBite() returns true (and all guards pass)
+WAITING → IDLE      if bobber disappears while watching
+BITING  → REELING   when scheduled reel-in fires (BITING path) — or recast scheduled directly (IDLE path)
+BITING  → IDLE      if bobber disappears before reel-in fires
+REELING → IDLE      after 10-tick reset (or if bobber disappears)
 ```
 
 ---
 
 ## 5. FishingManager — Core State Machine
 
-`com.poseidon.core.FishingManager` — singleton, accessed via `FishingManager.getInstance()`
+`com.poseidon.core.FishingManager` — singleton, `FishingManager.getInstance()`
 
 ### Activation
 
@@ -223,62 +268,38 @@ FishingManager.getInstance().setActive(false);  // stop, reset to IDLE
 FishingManager.getInstance().toggle();          // flip active state
 ```
 
-`setActive(false)` also clears both `pendingSuppressRecast` and `pendingStopBot` flags and resets state to IDLE.
+`setActive(false)` resets all flags: state → IDLE, `pendingSuppressRecast`, `pendingStopBot`, `lastRecastTick`, `lastReelTick`, `castTick`, `guiWasOpen`, `guiLockUntilTick`, `lastBaitName`, `lowBaitAlertFired`.
 
-### tick() — Called every game tick by PoseidonMod
+### GUI-Close Lock
 
-The method is a no-op if `!active`. It runs the state machine switch, then:
-- Refreshes the current area from the tab list every 40 ticks (2 seconds)
-- Runs sea creature cleanup every 40 ticks if tracking is enabled
+Every tick, `tick()` checks whether `mc.currentScreen` transitioned from non-null → null. On that transition a random lock duration is chosen (`GUI_RESUME_MIN_TICKS`=15 to `GUI_RESUME_MAX_TICKS`=50 ticks, ~0.75–2.5 s) and `guiLockUntilTick` is set. The boolean `guiLocked` is `true` while a screen is open OR within the post-close delay. The bite-detection guard checks `guiLocked` and returns early if true.
 
 ### Bite Detection
 
-`detectBite(MinecraftClient mc)` scans a box around the bobber's current position:
-- Box dimensions: `±detectionRadius` in XZ, `-1` to `+detectionRadius+2` in Y
-- Checks every entity in that box for `hasReelNowSignal(entity)`:
-  - Checks `entity.getCustomName().getString().contains("!!!")`
-  - Also checks `TextDisplayEntity.getText().getString().contains("!!!")` for modern display entities
+`detectBite(MinecraftClient mc)` scans a box `±detectionRadius` in XZ, `-1` to `+detectionRadius+2` in Y around the bobber. Checks each entity for `hasReelNowSignal()`:
+- `entity.getCustomName().getString().contains("!!!")`
+- `TextDisplayEntity.getText().getString().contains("!!!")` for display entities
 
-The `!!!` signal is placed by the Hypixel server as an armor stand (older system) or text display entity (newer system) near the bobber during the catch window. It typically appears for only a few ticks.
+### Reel-in & Recast Decision
 
-### Reaction Delay & Reel-in
+`scheduleReelIn()` picks a random delay and calls `Scheduler.scheduleMs()`. The lambda handles two paths:
+- **BITING** (normal): transitions to REELING, sends `tapKey("use", 100)`, schedules creature scan and 10-tick state reset.
+- **IDLE** (bobber pre-vanished during delay): skips the `tapKey`, logs the skip, falls through to the common recast-decision tail.
+- **Other state**: returns immediately.
 
-Once a bite is detected, the bobber position is snapshotted (`lastBobberX/Y/Z`) because the bobber may have despawned by the time the reel-in fires.
+Both BITING and IDLE paths then schedule the recast decision after `recastDecisionTicks`. The decision checks `pendingStopBot`, `pendingSuppressRecast`, and `cfg.isAutoRecast()` in priority order.
 
-`scheduleReelIn()` picks a random delay between `reactionDelayMinMs` and `reactionDelayMaxMs` and schedules via `Scheduler.scheduleMs()`. When the callback fires:
+### Idle Watchdog
 
-1. Transitions to `REELING`
-2. `MovementActions.tapKey("use", 100)` — right-click held for 100ms to reel in
-3. If sea creature tracking is on: schedules `scanForNewCreatures()` at `SCAN_DELAY_TICKS` (5 ticks)
-4. Clears recast flags (`pendingSuppressRecast`, `pendingStopBot`)
-5. Logs the recast decision window start
-6. Schedules the **recast decision** at `recastDecisionTicks` (default 10 ticks)
-7. Schedules a **state reset** at 10 ticks (`REELING → IDLE`)
+`lastRecastTick` is stamped when `scheduleRecast` fires its `tapKey`. If the bot stays in IDLE more than `IDLE_TIMEOUT_TICKS` (100) ticks without detecting a bobber, the watchdog logs a warning and calls `scheduleRecast()` again. `lastRecastTick` is cleared when a bobber is detected (IDLE→WAITING) or on `setActive(false)`.
 
-### Recast Decision Window
+### Slugfish Mode
 
-After reeling in, Poseidon waits `recastDecisionTicks` before deciding whether to recast. This window exists so that post-catch chat messages have time to arrive and fire their triggers (which can set `pendingSuppressRecast` or `pendingStopBot`).
+`castTick` is stamped when the bobber is first detected (IDLE→WAITING). In the WAITING bite-detection path, if `cfg.isSlugfishMode()` is true and `currentTick - castTick < required` (420 ticks normal / 220 ticks with Slug Pet), the bite is silently ignored and the method returns. `castTick` is cleared on bobber loss and `setActive(false)`.
 
-Decision logic (in priority order):
-1. If `!active` → abort
-2. If `pendingStopBot` → call `setActive(false)` → done
-3. If `!autoRecast || pendingSuppressRecast` → do not recast (wait for manual cast)
-4. Otherwise → `scheduleRecast(cfg)` with random delay between `recastDelayMinMs` and `recastDelayMaxMs`
+### Catch-Window Gating
 
-`scheduleRecast()` skips the recast if the state has returned to `WAITING` (server already recast for us) or `BITING` (another bite started before recast fired).
-
-### notifyTriggerFired(boolean dontRecast, boolean stopBot)
-
-Called from `PoseidonMod.onChatReceived()` when a trigger matches during a catch. Sets the recast flags that the decision window checks. The flags are reset at the start of each reel-in.
-
-### Nearby Text
-
-While in `WAITING` state, `scanNearbyText()` scans the same detection box for any entity text that:
-- Is not blank
-- Does not contain `!!!` (the bite signal)
-- Does not contain `⚓` (a sea creature name plate)
-
-The first match (truncated to 20 characters) is stored as `nearbyText` and shown in the HUD Bobber row. This captures the yellow countdown timers that Hypixel displays before a bite window opens.
+`lastReelTick` is stamped when the reel-in `tapKey` fires. `isInCatchWindow()` returns true for `CATCH_WINDOW_TICKS` (200 ticks / 10 s) after that stamp. Used by `PoseidonMod.onChatReceived()` to gate trigger evaluation.
 
 ### Public Getters
 
@@ -289,65 +310,68 @@ The first match (truncated to 20 characters) is stored as `nearbyText` and shown
 | `getTrackedCount()` | Number of currently tracked sea creatures |
 | `getCurrentArea()` | Area string from tab list, or `""` |
 | `getNearbyText()` | Countdown/nearby entity text, or `""` |
-| `shouldBlockRightClick()` | True when right-click should be suppressed (WAITING or BITING state) |
+| `getBaitName()` | Current bait display name, or `""` |
+| `getBaitCount()` | Bait count from lore / stack size, or `0` |
+| `getStatFishingSpeed()` | Fishing Speed from tab list, or `""` |
+| `getStatSeaCreatureChance()` | SCC from tab list, or `""` |
+| `getStatDoubleHookChance()` | DHC from tab list, or `""` |
+| `getStatTreasureChance()` | Treasure Chance from tab list, or `""` |
+| `getSlugfishRemainingTicks()` | Ticks until slugfish timer elapses (≤0 = ready, `MIN_VALUE` = mode off / no bobber) |
+| `isInCatchWindow()` | True within 10 s of the last reel-in |
+| `shouldBlockRightClick()` | True in WAITING/BITING state with no GUI open |
 
 ---
 
 ## 6. FishingConfig — Configuration
 
-`com.poseidon.core.FishingConfig` — singleton, accessed via `FishingConfig.getInstance()`
+`com.poseidon.core.FishingConfig` — singleton, `FishingConfig.getInstance()`
 
-Config is stored as JSON at `config/poseidon/config.json`. Loaded once on `onInitializeClient()`. Every setter immediately calls `save()`.
-
-### Known Areas
-
-```java
-FishingConfig.KNOWN_AREAS = List.of(
-    "Backwater Bayou", "Crimson Isle", "Galatea",
-    "Hub", "Jerry's Workshop", "The Park"
-)
-```
-
-These are the Hypixel Skyblock islands that have per-area sea creature caps in the config. Hub is the fallback cap for any island not in this list.
+Config stored as JSON at `config/poseidon/config.json`. Loaded once on init. Every setter calls `save()` immediately.
 
 ### Config Groups
 
 **Detection**
-- `detectionRadius` — radius around bobber for `!!!` scan (default `4.0`)
-- `hookStuckDetectionEnabled` — whether to check for bobber drift (default `true`)
-- `hookStuckMaxDistance` — horizontal drift threshold in blocks (default `1.5`)
-- `hookStuckSound` — played when hook stuck is detected
+- `detectionRadius` — scan box half-size for `!!!` (default `4.0`)
+- `hookStuckDetectionEnabled` (default `true`)
+- `hookStuckMaxDistance` — drift threshold in blocks (default `1.5`)
+- `hookStuckAutoRecast` — recast after drift, independent of global auto-recast (default `true`)
+- `hookStuckSound`
+- `slugfishMode` — suppress reel-ins until timer elapses (default `false`)
+- `slugPet` — halves the slugfish timer (default `false`)
 
 **Reaction / Recast**
-- `reactionDelayMinMs` / `reactionDelayMaxMs` — random window for reel-in reaction
-- `autoRecast` — whether to automatically recast after each catch (default `true`)
-- `recastDelayMinMs` / `recastDelayMaxMs` — random window for recast
-- `recastDecisionTicks` — how long to wait for chat triggers before deciding to recast
+- `reactionDelayMinMs` / `reactionDelayMaxMs`
+- `autoRecast` (default `true`)
+- `recastDelayMinMs` / `recastDelayMaxMs`
+- `recastDecisionTicks` (default `10`)
+
+**Bait Monitoring**
+- `baitHudVisible` (default `true`)
+- `baitLowThreshold` (default `5`)
+- `baitLowAlertSound`
+- `baitSwitchAlertSound`
 
 **Sea Creature Tracking**
-- `trackSeaCreatures` — master toggle (default `true`)
-- `creatureScanRadius` — scan box radius after each reel-in (default `12.0`)
-- `seaCreatureCapByArea` — per-island cap map, all default `10`
-- `seaCreatureCapSound` — played when cap is reached
-- `despawnWarningEnabled` — whether to warn about creature age (default `true`)
-- `despawnWarningMinutes` — age threshold for the warning (default `5`)
-- `despawnWarningSound` — played when a creature approaches despawn
+- `trackSeaCreatures` (default `true`)
+- `creatureScanRadius` (default `12.0`)
+- `SEA_CREATURE_CAP` = `10` (static constant, Hypixel-standardised)
+- `seaCreatureCapSound`
+- `despawnWarningEnabled` (default `true`)
+- `despawnWarningMinutes` (default `5`)
+- `despawnWarningSound`
+
+**Stats & Alerts**
+- `fishingStatsHudVisible` (default `true`)
+- `rebootAlertEnabled` (default `true`)
+- `rebootAlertSound`
 
 **Triggers**
 - `triggerLevels` — list of 5 `TriggerLevel` objects (all disabled by default)
-- `biteAlertSound` — played when `!!!` is first detected (off by default, `durationSeconds=0`)
+- `biteAlertSound` (silent by default, `durationSeconds=0`)
 
 **Developer**
-- `debugMode` — verbose logging flag
-- `logLevel` — minimum log level (`LEVEL_WARN` = 2 by default)
-
-### getCapForArea(String area)
-
-Returns the cap for the given area string. Falls back to the Hub cap for any unlisted area. Falls back to `10` if Hub itself has no entry. Minimum returned value is `1`.
-
-### getDespawnWarningTicks()
-
-Converts `despawnWarningMinutes` to game ticks: `minutes × 60 × 20`.
+- `debugMode` (default `false`)
+- `logLevel` (default `LEVEL_WARN` = 2)
 
 ---
 
@@ -355,41 +379,43 @@ Converts `despawnWarningMinutes` to game ticks: `minutes × 60 × 20`.
 
 `com.poseidon.gui.PoseidonHudRenderer`
 
-**Visibility state:** Stored as a static boolean `hudVisible`, default `false`. Controlled by the H keybind. Closing the HUD while the bot is active automatically calls `setActive(false)`.
-
-**Render method:** `render(DrawContext ctx, RenderTickCounter tick)` — registered via `HudRenderCallback.EVENT`. Draws nothing if `!hudVisible` or player is null.
+**Visibility:** static `hudVisible`, toggled by H keybind. Closing the HUD while active calls `setActive(false)`.
 
 ### Panel Layout
 
-The main panel is always at screen position `(4, 4)`, width 200 pixels. Height is dynamic based on which rows appear.
+Position `(4, 4)`, width 200 px. Height is dynamic.
 
-**Header:** "Poseidon" label left-aligned; state label right-aligned; colored accent bar on the left edge.
+**Header:** "Poseidon" label left; state label right (coloured by state). Accent bar on left edge; flashes red during reboot alert.
 
-**Rows displayed (in order):**
+**Rows (in order, each optional):**
 
-| Row | Label | Value | Color Logic |
-|-----|-------|-------|-------------|
-| 1 | `Active` | Yes / No | Green if active, red if not |
-| 2 | `State` | State name | Matches accent bar color |
-| 3 | `Bobber` | None / Detected / \<countdown text\> | Grey=none, Green=detected, Yellow=countdown visible |
-| 4 | `Area` | Island name | Grey — only shown if tracking enabled AND area is known |
-| 5 | `SC` | `count / cap` | Grey=0, Orange=>0, Red=at or over cap — only shown if tracking enabled |
+| Row | Label | When shown | Color logic |
+|-----|-------|------------|-------------|
+| `! Reboot` | SOON | Reboot alert active | Red `0xFFFF4444` |
+| `Active` | Yes / No | Always | Green / Red |
+| `State` | State name | Always | State colour |
+| `Bobber` | None / Detected / countdown | Always | Grey=none, Green=detected, Yellow=countdown |
+| `Slug` | `--` / `Xs` / `READY` | Slugfish mode on | Grey=no bobber, Orange=counting, Green=ready |
+| `Bait` | Name (count) | Bait HUD on | Red if no bait |
+| `Area` | Island name | SC tracking on + area known | Grey |
+| `SC` | count / 10 | SC tracking on | Grey=0, Orange=>0, Red=at cap |
+| `DHC` | stat or `--` | Stats HUD on + any stat known | Light grey |
+| `SCC` | stat or `--` | Stats HUD on + any stat known | Light grey |
+| `Speed` | stat or `--` | Stats HUD on + any stat known | Light grey |
+| `Treasure` | stat or `--` | Stats HUD on + any stat known | Light grey |
 
-**Accent bar (left edge) color by state:**
+**Log panel:** Last 5 log lines below the main panel (prefix stripped, 50-char max).
+
+### Accent Bar Color
 
 | State | Color |
 |-------|-------|
+| Reboot alert | Red `0xFFFF4444` (overrides state colour) |
 | IDLE (active=false) | Red `0xFFEE4444` |
 | IDLE (active=true) | Orange `0xFFFFAA00` |
 | WAITING | Green `0xFF44EE44` |
 | BITING | Yellow `0xFFFFFF44` |
 | REELING | Blue `0xFF44AAFF` |
-
-The state label in the header also uses the same color.
-
-### Log Panel
-
-Appears directly below the main panel when `PoseidonLogger` has entries. Shows the last 5 log lines (truncated to 50 characters each). The `[HH:mm:ss] [LEVEL] ` prefix is stripped, showing only the message.
 
 ---
 
@@ -397,105 +423,50 @@ Appears directly below the main panel when `PoseidonLogger` has entries. Shows t
 
 `com.poseidon.gui.PoseidonConfigScreen`
 
-Opened via `/poseidon` command, the `Open Config` keybind (no default), or ModMenu. Has five tabs:
+Opened via `/poseidon`, the Open Config keybind, or ModMenu.
 
 ### Tab 1 — Detection
 
-Controls how Poseidon identifies a bite and handles stuck hooks.
-
-| Setting | Type | Default | Range |
-|---------|------|---------|-------|
-| Armor Stand Radius | double slider | 4.0 | 1.0 – 10.0, step 0.5 |
-| Hook Stuck Detection | boolean | true | — |
-| Max Drift Distance (blocks) | double slider | 1.5 | 0.5 – 5.0, step 0.25 |
-| Hook Stuck Sound | string | `minecraft:entity.villager.no` | sound ID |
-| Hook Stuck Volume | double slider | 1.0 | 0.1 – 2.0, step 0.05 |
-| Hook Stuck Pitch | double slider | 1.2 | 0.5 – 2.0, step 0.05 |
-| Hook Stuck Duration | int slider | 2s | 0 – 30s |
-| Hook Stuck Interval | int slider | 10 ticks | 5 – 60 ticks |
+- Detection Radius slider (1.0 – 10.0)
+- **Hook Stuck Detection** section: enabled toggle, max drift slider, auto-recast-on-drift toggle, sound options
+- **Slugfish Mode** section: Slugfish Mode toggle (with warning), With Slug Pet toggle (with assumption warning)
 
 ### Tab 2 — Reaction Delay
 
-Controls the human reaction delay and auto-recast behaviour.
-
-| Setting | Type | Default | Range |
-|---------|------|---------|-------|
-| Min Delay (ms) | int slider | 180 | 50 – 2000, step 10 |
-| Max Delay (ms) | int slider | 700 | 50 – 3000, step 10 |
-| Auto Recast | boolean | true | — |
-| Recast Delay Min (ms) | int slider | 200 | 100 – 3000, step 50 |
-| Recast Delay Max (ms) | int slider | 600 | 100 – 5000, step 50 |
-| Trigger Wait (ticks) | int slider | 10 | 2 – 40, step 1 |
-
-The Trigger Wait slider uses a custom formatter: `"N ticks (N×50 ms)"`.
-
-Ping guidance shown in the description:
-- Low ping (<80 ms): 5–10 ticks
-- Medium ping (80–200 ms): 10–15 ticks
-- High ping (200+ ms): 20–30 ticks
+- Min / Max reaction delay sliders
+- **Auto Recast** section: toggle, min/max recast delay sliders, trigger wait slider (with ping guidance)
 
 ### Tab 3 — Sea Creature Tracking
 
-| Setting | Type | Default | Range |
-|---------|------|---------|-------|
-| Enable Tracking | boolean | true | — |
-| Scan Radius | double slider | 12.0 | 5.0 – 30.0, step 1.0 |
-| Backwater Bayou Cap | int slider | 10 | 1 – 50 |
-| Crimson Isle Cap | int slider | 10 | 1 – 50 |
-| Galatea Cap | int slider | 10 | 1 – 50 |
-| Hub Cap (default) | int slider | 10 | 1 – 50 |
-| Jerry's Workshop Cap | int slider | 10 | 1 – 50 |
-| The Park Cap | int slider | 10 | 1 – 50 |
-| Cap Alert Sound | string | `minecraft:entity.player.levelup` | sound ID |
-| Cap Alert Volume | double slider | 1.0 | 0.1 – 2.0 |
-| Cap Alert Pitch | double slider | 0.8 | 0.5 – 2.0 |
-| Cap Alert Duration | int slider | 10s | 0 – 30s |
-| Cap Alert Interval | int slider | 20 ticks | 5 – 60 ticks |
-| Enable Despawn Warning | boolean | true | — |
-| Warning At (minutes) | int slider | 5 | 1 – 6, formatter: "N min" |
-| Despawn Warning Sound | string | `minecraft:block.bell.use` | sound ID |
-| Despawn Warning Volume | double slider | 1.0 | 0.1 – 2.0 |
-| Despawn Warning Pitch | double slider | 0.8 | 0.5 – 2.0 |
-| Despawn Warning Duration | int slider | 5s | 0 – 30s |
-| Despawn Warning Interval | int slider | 20 ticks | 5 – 60 ticks |
+- Enable tracking toggle, scan radius slider
+- Cap alert sound options
+- Despawn warning: enable toggle, warning-at slider, sound options
 
-Note: Hub Cap is labelled "Hub Cap §7(default)" — Hub is the fallback cap for any island not in the list.
+### Tab 4 — Bait
 
-### Tab 4 — Chat Triggers
+- Show Bait in HUD toggle (with usage note)
+- Low Bait section: threshold slider, sound options
+- Bait Switch section: sound options
 
-Contains a header label explaining trigger syntax, then five `OptionGroup` blocks (one per trigger slot), followed by the Bite Alert sound at the bottom.
+### Tab 5 — Stats & Alerts
 
-**Each trigger group has:**
+- Fishing Stats HUD toggle
+- Reboot Alert toggle + sound options
 
-| Setting | Type | Default |
-|---------|------|---------|
-| Enabled | boolean | false |
-| Name | string | `""` |
-| Patterns | string | `""` (comma-separated substrings) |
-| Action | string | `""` (unused, reserved) |
-| Show Title | boolean | false |
-| Title Text | string | `""` (falls back to Name if blank) |
-| Don't Recast | boolean | false |
-| Stop Bot | boolean | false |
-| Sound (5 fields) | AlarmSound | defaultBite defaults |
+### Tab 6 — Chat Triggers
 
-**Bite Alert** (at bottom, after all triggers):
-| Setting | Default |
-|---------|---------|
-| Bite Alert Sound | `minecraft:entity.experience_orb.pickup` |
-| Volume | 1.0 |
-| Pitch | 1.5 |
-| Duration | 0s (off by default — set above 0 to enable) |
-| Interval | 15 ticks |
+- Header label explaining syntax
+- 5 `OptionGroup` blocks (one per trigger slot): enabled, name, patterns, action (reserved), show title, title text (supports `&x`/`§x` codes), don't recast, stop bot, sound options
+- Bite Alert section at the bottom (silent by default)
 
-The bite alert is silent by default (`durationSeconds=0`). The `AlarmSound.play()` method returns early if duration is 0.
+### Tab 7 — Updates
 
-### Tab 5 — Developer
+- Update check toggle
 
-| Setting | Type | Default |
-|---------|------|---------|
-| Debug Mode | boolean | false |
-| Log Level | cycling list (DEBUG/INFO/WARN/ERROR) | WARN |
+### Tab 8 — Developer
+
+- Debug mode toggle
+- Log level cycling list (DEBUG / INFO / WARN / ERROR)
 
 ---
 
@@ -503,54 +474,29 @@ The bite alert is silent by default (`durationSeconds=0`). The `AlarmSound.play(
 
 `com.poseidon.mixin.MouseClickMixin`
 
-```java
-@Mixin(Mouse.class)
-public class MouseClickMixin {
-    @Inject(method = "onMouseButton", at = @At("HEAD"), cancellable = true)
-    private void poseidon$blockRightClickWhenFishing(
-        long window, MouseInput mouseInput, int action, CallbackInfo ci)
-```
+Injects at `HEAD` of `Mouse.onMouseButton()`, cancellable. Blocks right-click when `FishingManager.shouldBlockRightClick()` returns `true`.
 
-**What it does:** Injects at the very start of `Mouse.onMouseButton()` and cancels the event (preventing the right-click from reaching the game) when all of the following are true:
-- The mouse action is `GLFW_PRESS` (not release or repeat)
-- The button is `GLFW_MOUSE_BUTTON_RIGHT`
-- `FishingManager.shouldBlockRightClick()` returns `true`
-
-**When `shouldBlockRightClick()` is true:** The bot is active AND the state is `WAITING` or `BITING`.
-
-**Why this is needed:** When fishing in Minecraft, right-clicking the rod while a bobber is in the water reels it in (the same action used for the intentional reel-in). Without this guard, any accidental right-click during the `WAITING` period would cancel the active cast, leaving the bot stuck. The mixin prevents that at the lowest possible level — before the input reaches `ClientPlayerInteractionManager`.
-
-This mixin is intentionally narrow. It does **not** block right-click in `REELING` state (the reel-in has already been sent) or `IDLE` state (no cast is active).
+**`shouldBlockRightClick()` is true when:**
+- Bot is active
+- State is `WAITING` or `BITING`
+- `mc.currentScreen == null` (no GUI is open — never blocks inside menus)
 
 ---
 
 ## 10. PoseidonLogger — Logging
 
-`com.poseidon.core.PoseidonLogger` — singleton, accessed via `PoseidonLogger.getInstance()`
-
-### Log Levels
+`com.poseidon.core.PoseidonLogger` — singleton, `PoseidonLogger.getInstance()`
 
 | Constant | Value | Usage |
 |----------|-------|-------|
-| `LEVEL_DEBUG` | 0 | Verbose detection output |
-| `LEVEL_INFO` | 1 | Normal operational events |
+| `LEVEL_DEBUG` | 0 | Verbose output |
+| `LEVEL_INFO` | 1 | Normal events |
 | `LEVEL_WARN` | 2 | Unexpected situations (default) |
-| `LEVEL_ERROR` | 3 | Failures and exceptions |
+| `LEVEL_ERROR` | 3 | Failures |
 
-Default level is `LEVEL_INFO` on construction, then overridden to `LEVEL_WARN` when config loads.
-
-### Output
-
-- **In-memory ring buffer:** Last 50 lines kept in a `ArrayDeque<String>`, accessed via `getRecentLines()`. Used by `PoseidonHudRenderer` for the log panel. Thread-safe via `synchronized`.
-- **File output:** Appended to `config/poseidon/poseidon.log` on every log call. File is opened once at construction in APPEND mode. Auto-flush enabled.
-
-### Line Format
-
-```
-[HH:mm:ss] [LEVEL] message
-```
-
-Example: `[14:32:07] [INFO] Bobber detected — watching for !!!`
+- **Ring buffer:** last 50 lines in synchronized `ArrayDeque<String>` → HUD log panel
+- **File output:** append-only to `config/poseidon/poseidon.log`
+- **Line format:** `[HH:mm:ss] [LEVEL] message`
 
 ---
 
@@ -558,415 +504,270 @@ Example: `[14:32:07] [INFO] Bobber detected — watching for !!!`
 
 `com.poseidon.PoseidonMod` — implements `ClientModInitializer`
 
-### Initialization Sequence (`onInitializeClient`)
+### Initialization
 
-1. Log "Poseidon initialising..."
-2. `FishingConfig.getInstance().load()` — load config from disk (or create defaults)
-3. `registerKeybinds()` — register Y, H, and the no-default config key
-4. `registerCommands()` — register `/poseidon` and the ALLOW_COMMAND fallback
+1. Log "Poseidon initialising…"
+2. `FishingConfig.getInstance().load()`
+3. `registerKeybinds()` — Y, H, unbound config key
+4. `registerCommands()` — `/poseidon` + ALLOW_COMMAND fallback
 5. `HudRenderCallback.EVENT.register(PoseidonHudRenderer::render)`
 6. `PlayerAPIEvents.TICK.register(this::onTick)`
 7. `PlayerAPIEvents.CHAT_RECEIVED.register(this::onChatReceived)`
-8. Log "Poseidon ready."
-
-### `/poseidon` Command
-
-Registered via Fabric's `ClientCommandRegistrationCallback`. Sets `openConfigNextTick = true`, which causes the config screen to open on the next tick. The tick delay avoids a race condition with the chat screen closing.
-
-A fallback is also registered via `ClientSendMessageEvents.ALLOW_COMMAND` for servers that override the client command tree. If the command `poseidon` arrives via this path, it sets the flag and returns `false` (block the message from being sent to the server).
-
-### onTick()
-
-Runs every game tick:
-1. Guard: `if (!PlayerInfo.isInWorld()) return`
-2. If `openConfigNextTick`: clear flag, open `PoseidonConfigScreen`
-3. `FishingManager.getInstance().tick()`
-4. `handleKeybinds()`
-
-### handleKeybinds()
-
-Polls three keybinds for presses:
-
-**Y (Toggle Fishing):**
-- If active: `setActive(false)`
-- If inactive AND HUD visible: `setActive(true)`
-- If inactive AND HUD not visible: log warning ("Open the HUD first (H) before starting")
-- This enforces the workflow: open HUD → toggle on, rather than allowing an invisible active state.
-
-**H (Toggle HUD):**
-- Flips `PoseidonHudRenderer.hudVisible`
-- If HUD was just closed AND bot is active: calls `setActive(false)` and logs "HUD closed — fishing stopped"
-
-**Config key (no default):**
-- Opens `PoseidonConfigScreen` immediately
+8. `PlayerAPIEvents.WORLD_JOIN.register(this::onWorldJoin)` — triggers update check
+9. Log "Poseidon ready."
 
 ### onChatReceived(String sender, String message)
 
-Iterates `FishingConfig.getTriggerLevels()` in order. For the first trigger that matches (`level.matches(message)`):
-1. Logs the match
-2. `level.sound.play()`
-3. If `level.showTitle`: calls `showTitle(level)` (see below)
-4. `FishingManager.getInstance().notifyTriggerFired(level.dontRecast, level.stopBot)`
-5. Break — only the first matching trigger fires
+1. `RebootAlertManager.getInstance().onChatReceived(sender, message)` — always runs
+2. `if (!FishingManager.getInstance().isInCatchWindow()) return` — timing gate
+3. `if (!isCatchMessage(message)) return` — colour gate (`§a`, `§e`, `⛃`)
+4. Iterate trigger levels; first match: play sound, show title (via `parseLegacyText()`), call `notifyTriggerFired()`
 
-**showTitle(TriggerLevel level):**
-Uses `DisplayActions.showTitle(text, "")` from PlayerAPI. The title text is:
-- `level.titleText` if not blank
-- Otherwise `level.name`
-- Otherwise the hardcoded fallback `"Trigger Fired"`
+### showTitle / parseLegacyText
 
-`DisplayActions` is a PlayerAPI class that wraps Minecraft's `InGameHud.setTitle()` / `setSubtitle()` to display the big MC title overlay.
+`showTitle()` calls `mc.inGameHud.setTitle()` / `setSubtitle()` / `setTitleTicks()` directly with a `MutableText` built by `parseLegacyText()`. Both `&` and `§` are accepted as format-code prefixes. Colour codes reset bold/italic/etc. to match vanilla behaviour; `§r`/`&r` resets all.
 
 ---
 
 ## 12. Chat Triggers System
 
-### Overview
+### Gates (both must pass before patterns are checked)
 
-Poseidon has 5 configurable trigger slots. Each trigger watches incoming chat messages for keyword matches. When a match is found, it can:
-
-- Play an alarm sound
-- Show a Minecraft title overlay
-- Suppress the automatic recast (so you can deal with whatever caught your attention)
-- Stop the bot entirely (HUD stays open)
-
-Triggers are checked in order from slot 1 to slot 5. The first match wins — later triggers do not fire for the same message.
+1. **Timing gate:** `isInCatchWindow()` — true for 200 ticks (10 s) after the reel-in `tapKey` fires.
+2. **Colour gate:** `isCatchMessage(msg)` — true if msg starts with `§a` (green catch), `§e` (yellow/gold, e.g. Double Hook), or has `⛃` as the first non-format-code character (treasure catch).
 
 ### TriggerLevel Fields
 
 ```java
-public String  name        // display label (shown in config group header and logs)
-public boolean enabled     // whether this trigger is active
-public String  patterns    // comma-separated match substrings, case-insensitive
-public AlarmSound sound    // sound to play on match
-public String  action      // unused (reserved for future use, leave blank)
-public boolean dontRecast  // suppress auto-recast after this catch
-public boolean stopBot     // deactivate the bot after this catch
-public boolean showTitle   // show a MC title overlay
-public String  titleText   // title text (uses `name` if blank)
+String    name        // label shown in config header and logs
+boolean   enabled
+String    patterns    // comma-separated, case-insensitive substrings
+AlarmSound sound
+String    action      // reserved, unused
+boolean   dontRecast  // suppress auto-recast for this catch
+boolean   stopBot     // deactivate bot after this catch
+boolean   showTitle   // show MC title overlay
+String    titleText   // supports &x / §x colour codes; falls back to name
 ```
 
 ### Pattern Matching
 
-`TriggerLevel.matches(String chatText)`:
-- Returns `false` if `!enabled` or patterns is blank
-- Splits patterns on commas, trims each part, lowercases both
-- Returns `true` if any non-empty pattern is found as a substring of the chat text
-- Case-insensitive substring match, not regex
-
-Example patterns for Hypixel Skyblock sea creature events: `"appeared, emerged"`.
-
-### Interaction with Recast Decision Window
-
-Chat messages arrive asynchronously relative to the reel-in. `recastDecisionTicks` is the window between the reel-in action and the recast decision. If a trigger fires within this window, its `dontRecast`/`stopBot` flags will be seen by the decision callback.
-
-If a trigger fires **after** the decision window closes, the flags are ignored. Increasing `recastDecisionTicks` (or the associated millisecond equivalent) allows more time for high-latency servers.
+`TriggerLevel.matches(String chatText)` — splits patterns on `,`, lowercases both, returns true if any non-empty pattern is a substring of the chat text. Case-insensitive, no regex.
 
 ---
 
 ## 13. Sea Creature Tracking System
 
-### Overview
+### Detection
 
-After each reel-in, Poseidon scans for entities near the bobber position bearing the ⚓ anchor character (U+2693). This is the prefix Hypixel uses on sea creature name plates. New creatures are added to a `List<TrackedSeaCreature>` with their entity ID, name, and spawn tick.
+`isSeaCreatureDisplay(Entity)` — checks for `⚓` (U+2693) in custom name or `TextDisplayEntity` text.
 
-### Detection Mechanism
-
-`isSeaCreatureDisplay(Entity entity)`:
-- Checks `entity.getCustomName().getString().contains("⚓")` for armor stands / mob name plates
-- Checks `TextDisplayEntity.getText().getString().contains("⚓")` for text display entities
-
-`extractCreatureName(Entity entity)`:
-- Reads raw entity text
-- Finds the `⚓` character, takes everything after it (trimmed)
-- Strips from the first digit onward (start of the HP value)
-- Returns the resulting name, or `"Unknown"` if parsing fails
-- Full format Hypixel uses: `"[LvN] ⚓ CreatureName HP/MaxHP❤"`
+`extractCreatureName(Entity)` — strips `[LvN] ⚓ ` prefix and HP suffix from the full nameplate text.
 
 ### Scan Timing
 
-The scan runs `SCAN_DELAY_TICKS = 5` ticks after the reel-in. This delay is intentional: the bobber entity typically despawns within 1–2 ticks of the `use` key press. Anchoring the scan to the saved `lastBobberX/Y/Z` position rather than the current bobber position (which may be gone) ensures the scan always runs at the right place.
+Runs `SCAN_DELAY_TICKS` (5) ticks after the reel-in, anchored to the saved `lastBobberX/Y/Z` position.
+
+At most **one** creature is added per reel-in to avoid picking up other players' nearby creatures.
+
+### Deduplication
+
+Before adding a new entity, the scanner checks all tracked creatures with the same name. If any tracked creature is within 3 blocks of the new entity, it is treated as a nameplate refresh (new display entity for the same mob) and its `entityId` is updated in-place rather than adding a new entry.
 
 ### Cleanup
 
-`cleanupDeadCreatures(MinecraftClient mc)` runs every `CLEANUP_PERIOD_TICKS = 40` ticks (2 seconds):
-1. **Despawn warnings**: If `despawnWarningEnabled`, checks each tracked creature's age. If `(currentTick - spawnTick) >= despawnWarningTicks`, and the alert hasn't fired yet, plays `despawnWarningSound` and logs a warning.
-2. **Dead removal**: `tracked.removeIf(t -> mc.world.getEntityById(t.entityId) == null)` — removes any creature whose entity is no longer in the world.
-3. **Cap reset**: If the tracked count falls below the cap after removal, resets `capAlertFired = false` so the alert can fire again next time.
+`cleanupDeadCreatures()` runs every `CLEANUP_PERIOD_TICKS` (40) ticks:
+1. **Despawn warnings:** checks creature age against `despawnWarningTicks`; fires sound once per creature.
+2. **Dead removal:** `removeIf(t -> mc.world.getEntityById(t.entityId) == null)`. Position (`lastX`/`lastZ`) is kept fresh for the deduplication check while the entity is alive.
+3. **Cap reset:** if tracked count falls below `SEA_CREATURE_CAP` after removal, clears `capAlertFired`.
 
-### Cap Alert
+### Cap
 
-`checkCapAlert()` is called after each scan finds new creatures. If `tracked.size() >= cap` and `!capAlertFired`, plays `seaCreatureCapSound` and sets `capAlertFired = true`. The cap used is `cfg.getCapForArea(currentArea)`.
-
-### TrackedSeaCreature (inner class)
-
-```java
-final int     entityId         // MC entity ID for alive-check
-final String  name             // extracted display name
-final long    spawnTick        // Scheduler.getCurrentTick() at detection time
-boolean       despawnAlertFired // prevents duplicate despawn warnings
-```
+`SEA_CREATURE_CAP = 10` — a single static constant. The per-area cap map was removed in 1.1.0.
 
 ---
 
 ## 14. Hook Stuck Detection
 
-### Problem
+After a 1-second settle period (`BOBBER_SETTLE_TICKS` = 20), every WAITING tick:
+1. Compute `dist = sqrt((bobber.X - initialX)² + (bobber.Z - initialZ)²)`
+2. If `dist > hookStuckMaxDistance`: play `hookStuckSound`, send `tapKey("use", 100)`, schedule recast if `cfg.isHookStuckAutoRecast()` (independent of global `autoRecast`)
 
-When casting near mobs, the fishing hook can attach to the mob instead of landing in water. The bobber entity exists and is valid, so the normal state machine would wait indefinitely for a bite that will never come. The hook moves with the mob, never triggering `!!!`.
-
-### Detection Mechanism
-
-After the bobber lands, a 1-second settle period (`BOBBER_SETTLE_TICKS = 20`) runs. During this window, `initialBobberX/Z` is continuously updated to the current bobber XZ position (so we measure from the final resting place, not the arc peak).
-
-Once the settle period ends, every tick:
-1. Compute horizontal displacement: `dx = bobber.X - initialBobberX`, `dz = bobber.Z - initialBobberZ`
-2. Compute Euclidean distance: `dist = sqrt(dx² + dz²)`
-3. If `dist > hookStuckMaxDistance` (default 1.5):
-   - Set `hookStuckFired = true` (prevents alert spam for the same cast)
-   - Play `hookStuckSound`
-   - Transition to `REELING`, call `MovementActions.tapKey("use", 100)`
-   - Schedule state reset after 10 ticks, then schedule recast if `autoRecast`
-
-### Why Horizontal Only?
-
-Normal fishing bobbers bob vertically as they float on water. The vertical amplitude is typically < 0.5 blocks. Horizontal drift essentially never occurs for a bobber floating in water. By checking only XZ displacement, the system avoids false positives from the normal bobbing animation.
-
-### Configuration
-
-- `hookStuckDetectionEnabled` (bool, default true) — master toggle
-- `hookStuckMaxDistance` (double, default 1.5 blocks) — drift threshold, range 0.5–5.0
-- `hookStuckSound` (`AlarmSound`, default: `minecraft:entity.villager.no`)
+XZ-only measurement avoids false positives from normal vertical bobbing (~0.5 blocks).
 
 ---
 
 ## 15. AlarmSound Data Class
 
-`FishingConfig.AlarmSound` — public static inner class of `FishingConfig`
+`FishingConfig.AlarmSound` — inner class, used for all sounds in Poseidon.
 
-Represents a single repeating sound alert. Used for all sounds throughout Poseidon.
+| Field | Type | Notes |
+|-------|------|-------|
+| `soundId` | String | Minecraft sound ID |
+| `volume` | double | 0.1 – 2.0 |
+| `pitch` | double | 0.5 – 2.0 |
+| `durationSeconds` | int | 0 = silent/disabled |
+| `intervalTicks` | int | Ticks between repeats |
 
-### Fields
+`play()` — `times = (durationSeconds × 20) / intervalTicks`; calls `SoundActions.playByIdRepeated()`. Returns early if `durationSeconds ≤ 0`.
 
-| Field | Type | Meaning |
-|-------|------|---------|
-| `soundId` | String | Minecraft sound ID (`"namespace:sound.path"`) |
-| `volume` | double | 0.1 (quiet) – 2.0 (loud), 1.0 = normal |
-| `pitch` | double | 0.5 (slow/deep) – 2.0 (fast/high), 1.0 = normal |
-| `durationSeconds` | int | Total seconds the alarm plays; 0 = play once, silent if 0 for bite alert |
-| `intervalTicks` | int | Ticks between each repeat (20 ticks = 1 second) |
-
-### Default Instances
-
-```java
-AlarmSound.defaultBite()
-// soundId=minecraft:entity.experience_orb.pickup, vol=1.0, pitch=1.5, dur=0, interval=15
-// Note: dur=0 means silent by default. Set duration > 0 to enable.
-
-AlarmSound.defaultAlert()
-// soundId=minecraft:entity.player.levelup, vol=1.0, pitch=1.0, dur=8, interval=20
-```
-
-### play()
-
-```java
-public void play() {
-    if (soundId == null || soundId.isBlank() || durationSeconds <= 0) return;
-    int times = Math.max(1, (durationSeconds * 20) / Math.max(1, intervalTicks));
-    SoundActions.playByIdRepeated(soundId, (float) volume, (float) pitch, times, intervalTicks);
-}
-```
-
-Calculates repeat count from duration and interval. Returns early if silent (duration ≤ 0).
-
-### mergeFrom(AlarmSound src, AlarmSound defaults)
-
-Used during config load to merge file values over defaults while protecting against zeroed/null fields:
-- Uses `src.soundId` if non-blank, else `defaults.soundId`
-- Uses `src.volume/pitch` if > 0, else defaults
-- Uses `src.durationSeconds/intervalTicks` if > 0, else defaults
-
-This means a config file cannot set volume to exactly 0.0 (it would fall back to the default). This is an intentional safeguard against silent-by-mistake configs.
+`mergeFrom(src, defaults)` — loads file values over defaults, protecting against zero/null fields.
 
 ---
 
 ## 16. Config Schema & Migration History
 
-The config file includes a `configVersion` integer. On load, the `migrate()` method chains through all versions in order, bringing old configs forward automatically.
-
-### Migration Chain
-
 ```
-v0 → v1: flat biteAlert* fields → biteAlertSound AlarmSound object; triggerLevels added
-v1 → v2: single seaCreatureCap int → seaCreatureCapByArea Map (all areas get the old cap value)
-v2 → v3: autoRecast added (GSON defaults bool to false; migration injects true for old configs)
-v3 → v4: recastDecisionTicks added (was hardcoded 40 in old code, default now 10)
-v4 → v5: despawnWarningEnabled, despawnWarningMinutes added
-v5 → v6: hookStuckDetectionEnabled, hookStuckMaxDistance added
+v0  → v1:  flat biteAlert* → biteAlertSound AlarmSound object; triggerLevels added
+v1  → v2:  seaCreatureCap int → seaCreatureCapByArea Map
+v2  → v3:  autoRecast added (inject true — GSON defaults bool to false)
+v3  → v4:  recastDecisionTicks added
+v4  → v5:  despawnWarningEnabled, despawnWarningMinutes added (inject true)
+v5  → v6:  hookStuckDetectionEnabled, hookStuckMaxDistance added (inject true)
+v6  → v7:  updateCheckEnabled added (inject true)
+v7  → v8:  seaCreatureCapByArea removed; SEA_CREATURE_CAP = 10 (constant)
+v8  → v9:  baitHudVisible, baitLowThreshold, baitLowAlertSound, baitSwitchAlertSound added (inject true for baitHudVisible)
+v9  → v10: rebootAlertEnabled, rebootAlertSound, fishingStatsHudVisible added (inject true for both booleans)
+v10 → v11: hookStuckAutoRecast added (inject true)
+v11 → v12: slugfishMode, slugPet added (both default false — no injection needed)
 ```
 
-**GSON boolean default caveat:** GSON creates objects by bypassing constructors. Any new boolean field added to `FishingConfig` that should default to `true` must be injected in the migration step, not just added as a Java field initializer, because GSON will produce `false` for a missing field. Poseidon handles this correctly via migrations (v2→v3 for `autoRecast`, v4→v5 for `despawnWarningEnabled`, v5→v6 for `hookStuckDetectionEnabled`).
-
-### KNOWN_AREAS Static Init Order
-
-`FishingConfig.KNOWN_AREAS` is declared as the first static field specifically because the `INSTANCE = new FishingConfig()` line (which comes just after) triggers the constructor, and `defaultCapsByArea()` iterates `KNOWN_AREAS`. If `INSTANCE` were declared first, `KNOWN_AREAS` would be `null` during the constructor call. The field order is load-bearing.
+**GSON boolean caveat:** GSON bypasses constructors. Any new boolean field that should default `true` must be injected in its migration step — Java field initializers are ignored when GSON deserializes.
 
 ---
 
 ## 17. Keybinds & Commands
 
-### Keybinds
-
-All registered under the `Poseidon Controls` category in Minecraft's keybind settings.
-
 | Key | Default | Action |
 |-----|---------|--------|
-| Y | Y | **Toggle Fishing** — starts the bot (if HUD is open) or stops it |
-| H | H | **Toggle HUD** — shows/hides the HUD overlay; also stops the bot if HUD is closed while active |
-| (none) | Unbound | **Open Config** — opens the YACL config screen directly |
-
-**Start workflow:** The Y key will refuse to start the bot if the HUD is not visible. The intended flow is: H to open HUD, then Y to start fishing.
-
-### Commands
+| Y | Y | Toggle Fishing — starts (if HUD visible) or stops the bot |
+| H | H | Toggle HUD — also stops the bot if HUD is closed while active |
+| (none) | Unbound | Open Config |
 
 | Command | Effect |
 |---------|--------|
-| `/poseidon` | Opens the YACL configuration screen |
+| `/poseidon` | Opens config screen (tick-delayed to avoid chat-close race) |
 
-The command uses a tick-delay trick (`openConfigNextTick`) to avoid a race where the config screen tries to open while the chat screen is still closing.
-
-A fallback via `ClientSendMessageEvents.ALLOW_COMMAND` handles the case where a server overrides the client command tree and intercepts `/poseidon` before Fabric's `ClientCommandManager` can handle it.
+ALLOW_COMMAND fallback handles servers that override the client command tree.
 
 ---
 
 ## 18. HUD Reference
 
-### When is it shown?
-
-Only when `PoseidonHudRenderer.hudVisible == true`. Default is `false` on launch. H key toggles it.
-
-### Main Panel
-
-Position: top-left `(4, 4)`.
-Width: 200 pixels.
-Height: dynamic — header (13 px) + divider (1 px) + padding (5 px) + rows × 11 px + bottom padding (5 px).
+**Panel:** position `(4, 4)`, width 200 px, height dynamic.  
+**Header:** "Poseidon" + right-aligned state label, coloured accent bar on left edge.
 
 ```
-┌── Poseidon ─────────── [STATE] ──┐  ← colored accent bar + header
-│                                   │  ← divider line
-│  Active      Yes / No             │
-│  State       IDLE / WAITING / ... │
-│  Bobber      None / Detected / .. │
-│  Area        Hub             (opt)│
-│  SC          4 / 10          (opt)│
+┌── Poseidon ─────────── [STATE] ──┐  ← accent bar + header
+│                                   │  ← divider
+│  ! Reboot   SOON            (opt) │  ← red when reboot detected
+│  Active     Yes / No              │
+│  State      IDLE / WAITING / ...  │
+│  Bobber     None / Detected / ... │
+│  Slug       -- / 18s / READY (opt)│  ← slugfish mode only
+│  Bait       Name (count)    (opt) │
+│  Area       Hub             (opt) │
+│  SC         4 / 10          (opt) │
+│  DHC        value or --     (opt) │  ─┐ stats section
+│  SCC        value or --     (opt) │   │ shown only when at least
+│  Speed      value or --     (opt) │   │ one stat is available
+│  Treasure   value or --     (opt) │  ─┘
 └───────────────────────────────────┘
+
+[LOG]──────────────────────────────────
+  Last log line
+  ...
 ```
-
-Area row only appears if sea creature tracking is enabled AND `currentArea` is not blank.
-SC row only appears if sea creature tracking is enabled.
-
-### Log Panel
-
-Appears immediately below the main panel (3 px gap). Shows last 5 log lines. Format: message text only (prefix stripped). Max 50 characters per line, truncated with `…`.
-
-### State → Color Mapping
-
-| Bot Active | FishingState | Color | Header Label |
-|------------|-------------|-------|--------------|
-| false | IDLE | Red `0xFFEE4444` | OFF |
-| true | IDLE | Orange `0xFFFFAA00` | IDLE |
-| true | WAITING | Green `0xFF44EE44` | WAITING |
-| true | BITING | Yellow `0xFFFFFF44` | BITING |
-| true | REELING | Blue `0xFF44AAFF` | REELING |
-
-When active=false, the header label shows `"OFF"` rather than `"IDLE"`.
-
-### Bobber Row Color
-
-| Condition | Color | Value |
-|-----------|-------|-------|
-| No bobber | Grey `0xFF888888` | `"None"` |
-| Bobber present, no nearby text | Green `0xFF44EE44` | `"Detected"` |
-| Bobber present, nearby text found | Yellow `0xFFFFCC00` | The countdown text (≤20 chars) |
-
-### SC Row Color
-
-| Condition | Color |
-|-----------|-------|
-| At or over cap | Red `0xFFFF4444` |
-| Tracked > 0 | Orange `0xFFFFAA00` |
-| Tracked = 0 | Grey `0xFF888888` |
 
 ---
 
 ## 19. Configuration Reference (All Settings)
 
-All settings live in `config/poseidon/config.json`. Keys match the Java field names.
-
 ### Detection
 
-| Key | Type | Default | Notes |
-|-----|------|---------|-------|
-| `detectionRadius` | double | 4.0 | Scan box half-size around bobber for `!!!` signal |
-| `hookStuckDetectionEnabled` | bool | true | Enable horizontal drift check |
-| `hookStuckMaxDistance` | double | 1.5 | Drift threshold in blocks |
-| `hookStuckSound` | AlarmSound | villager.no, 1.0, 1.2, 2s, 10t | — |
+| Key | Type | Default |
+|-----|------|---------|
+| `detectionRadius` | double | 4.0 |
+| `hookStuckDetectionEnabled` | bool | true |
+| `hookStuckMaxDistance` | double | 1.5 |
+| `hookStuckAutoRecast` | bool | true |
+| `slugfishMode` | bool | false |
+| `slugPet` | bool | false |
 
 ### Reaction & Recast
 
-| Key | Type | Default | Notes |
-|-----|------|---------|-------|
-| `reactionDelayMinMs` | int | 180 | Min reaction delay in ms |
-| `reactionDelayMaxMs` | int | 700 | Max reaction delay in ms |
-| `autoRecast` | bool | true | Auto-recast after each catch |
-| `recastDelayMinMs` | int | 200 | Min recast delay in ms |
-| `recastDelayMaxMs` | int | 600 | Max recast delay in ms |
-| `recastDecisionTicks` | int | 10 | Ticks to wait for triggers before recast decision |
+| Key | Type | Default |
+|-----|------|---------|
+| `reactionDelayMinMs` | int | 180 |
+| `reactionDelayMaxMs` | int | 700 |
+| `autoRecast` | bool | true |
+| `recastDelayMinMs` | int | 200 |
+| `recastDelayMaxMs` | int | 600 |
+| `recastDecisionTicks` | int | 10 |
+
+### Bait Monitoring
+
+| Key | Type | Default |
+|-----|------|---------|
+| `baitHudVisible` | bool | true |
+| `baitLowThreshold` | int | 5 |
+| `baitLowAlertSound` | AlarmSound | orb.pickup, 1.0, 0.5, 3s, 20t |
+| `baitSwitchAlertSound` | AlarmSound | bell.use, 1.0, 0.8, 2s, 20t |
 
 ### Sea Creature Tracking
 
-| Key | Type | Default | Notes |
-|-----|------|---------|-------|
-| `trackSeaCreatures` | bool | true | Master toggle |
-| `creatureScanRadius` | double | 12.0 | Scan radius after each reel-in |
-| `seaCreatureCapByArea` | Map\<String,Integer\> | all 10 | Per-island cap; Hub is fallback |
-| `seaCreatureCapSound` | AlarmSound | levelup, 1.0, 0.8, 10s, 20t | — |
-| `despawnWarningEnabled` | bool | true | — |
-| `despawnWarningMinutes` | int | 5 | Age threshold for despawn warning |
-| `despawnWarningSound` | AlarmSound | bell.use, 1.0, 0.8, 5s, 20t | — |
+| Key | Type | Default |
+|-----|------|---------|
+| `trackSeaCreatures` | bool | true |
+| `creatureScanRadius` | double | 12.0 |
+| `SEA_CREATURE_CAP` | int constant | 10 |
+| `seaCreatureCapSound` | AlarmSound | levelup, 1.0, 0.8, 10s, 20t |
+| `despawnWarningEnabled` | bool | true |
+| `despawnWarningMinutes` | int | 5 |
+| `despawnWarningSound` | AlarmSound | bell.use, 1.0, 0.8, 5s, 20t |
+
+### Stats & Alerts
+
+| Key | Type | Default |
+|-----|------|---------|
+| `fishingStatsHudVisible` | bool | true |
+| `rebootAlertEnabled` | bool | true |
+| `rebootAlertSound` | AlarmSound | bell.use, 1.0, 1.0, 300s, 40t |
 
 ### Triggers
 
-| Key | Type | Default | Notes |
-|-----|------|---------|-------|
-| `triggerLevels` | List\<TriggerLevel\> | 5 empty/disabled | — |
-| `biteAlertSound` | AlarmSound | orb.pickup, 1.0, 1.5, 0s, 15t | Duration 0 = disabled |
+| Key | Type | Default |
+|-----|------|---------|
+| `triggerLevels` | List\<TriggerLevel\> | 5 empty/disabled |
+| `biteAlertSound` | AlarmSound | orb.pickup, 1.0, 1.5, 0s (silent), 15t |
 
 ### Developer
 
-| Key | Type | Default | Notes |
-|-----|------|---------|-------|
-| `debugMode` | bool | false | — |
-| `logLevel` | int | 2 (WARN) | 0=DEBUG, 1=INFO, 2=WARN, 3=ERROR |
-| `configVersion` | int | 6 | Do not edit manually |
+| Key | Type | Default |
+|-----|------|---------|
+| `debugMode` | bool | false |
+| `logLevel` | int | 2 (WARN) |
+| `configVersion` | int | 12 (auto-managed) |
+| `updateCheckEnabled` | bool | true |
 
 ---
 
 ## 20. Timing Reference
 
-| Constant | Value | Location | Purpose |
-|----------|-------|----------|---------|
-| `SCAN_DELAY_TICKS` | 5 | FishingManager | Delay after reel-in before scanning for new sea creatures |
-| `CLEANUP_PERIOD_TICKS` | 40 | FishingManager | How often to check for despawned creatures (2 seconds) |
-| `AREA_REFRESH_TICKS` | 40 | FishingManager | How often to re-read "Area:" from tab list (2 seconds) |
-| `BOBBER_SETTLE_TICKS` | 20 | FishingManager | Settle window before hook stuck drift check starts (1 second) |
-| State reset delay | 10 ticks | FishingManager | After reel-in fires, time before REELING→IDLE transition |
-| `recastDecisionTicks` | 10 (configurable) | FishingConfig | Wait for chat triggers before recast decision |
-| `reactionDelayMinMs` | 180 (configurable) | FishingConfig | Min human reaction delay |
-| `reactionDelayMaxMs` | 700 (configurable) | FishingConfig | Max human reaction delay |
-| `recastDelayMinMs` | 200 (configurable) | FishingConfig | Min recast delay |
-| `recastDelayMaxMs` | 600 (configurable) | FishingConfig | Max recast delay |
-| `despawnWarningMinutes` | 5 (configurable) | FishingConfig | Age at which despawn warning fires |
+| Constant | Value | Purpose |
+|----------|-------|---------|
+| `SCAN_DELAY_TICKS` | 5 | Delay after reel-in before scanning for sea creatures |
+| `CLEANUP_PERIOD_TICKS` | 40 | How often dead creatures are removed (2 s) |
+| `AREA_REFRESH_TICKS` | 40 | How often the tab-list area is re-read (2 s) |
+| `BOBBER_SETTLE_TICKS` | 20 | Settle window before hook-stuck drift check (1 s) |
+| `IDLE_TIMEOUT_TICKS` | 100 | Idle watchdog: recast retry if no bobber after this long (5 s) |
+| `CATCH_WINDOW_TICKS` | 200 | Trigger evaluation window after a reel-in (10 s) |
+| `SLUGFISH_NORMAL_TICKS` | 420 | Slugfish delay, no pet (21 s) |
+| `SLUGFISH_PET_TICKS` | 220 | Slugfish delay, max Slug Pet (11 s) |
+| `GUI_RESUME_MIN_TICKS` | 15 | Min post-GUI-close lock (~0.75 s) |
+| `GUI_RESUME_MAX_TICKS` | 50 | Max post-GUI-close lock (~2.5 s) |
+| State reset delay | 10 | REELING → IDLE after reel-in |
+| `recastDecisionTicks` | 10 (configurable) | Trigger window before recast decision |
 
 20 ticks = 1 second. 1 tick ≈ 50 ms.
 
@@ -974,40 +775,38 @@ All settings live in `config/poseidon/config.json`. Keys match the Java field na
 
 ## 21. Design Decisions & Notes
 
-### Why a Settle Period for Hook Stuck Detection?
+### GUI-Close Lock
 
-During the cast arc, the bobber travels through the air before landing. Its XZ position changes dramatically during this arc. Without the settle period, every cast would immediately trigger a hook stuck alert because the bobber just flew from the player position to the water. The 1-second settle window (20 ticks) waits for the bobber to reach its final resting position in the water before measuring drift.
+Reacting to a bite the instant a GUI closes is a strong automation signal. The random 15–50 tick delay after `mc.currentScreen` goes null breaks the deterministic pattern without requiring the player to do anything special. The lock is managed entirely by `FishingManager.tick()` using the existing tick loop — no separate callback is needed.
 
-### Why Save the Bobber Position Before Reeling In?
+### Catch-Window Gating for Triggers
 
-The bobber entity (`fishHook`) can despawn within 1–2 ticks of the reel-in action being sent. By the time the `Scheduler.schedule(SCAN_DELAY_TICKS, ...)` callback fires, `mc.player.fishHook` is almost certainly null. The bobber XZ/Y coordinates are therefore captured at the moment the `!!!` signal is detected, and those saved coordinates are passed as parameters to the delayed sea creature scan.
+Rather than checking all chat, triggers only run within 10 s of a reel-in. This prevents a player's death message (mentioning a creature name) from triggering an alert mid-session. The window is generous enough to cover high-latency servers but tight enough to exclude unrelated chat.
 
-### Why Use `ALLOW_COMMAND` as a Fallback?
+### Colour Gate for Triggers
 
-On servers like Hypixel, the server pushes a custom command tree to the client that may not include `/poseidon`. In that case, Fabric's `ClientCommandManager` would not intercept `/poseidon` before it is sent to the server. The `ALLOW_COMMAND` event fires before the message is sent over the network, catching this case. The handler returns `false` (blocking the send) and sets the flag.
+`isCatchMessage()` strips leading `§X` format-code pairs and checks the remaining content. `§a` covers normal catch lines; `§e` covers the Double Hook announcement (`§e§lDOUBLE HOOK!`) that precedes a catch; `⛃` covers treasure catches which use a variable colour prefix. Any other colour prefix (red death notices, gray system messages) is rejected before pattern matching runs.
 
-### Why the Bobber-in-REELING Guard?
+### parseLegacyText()
 
-`scheduleRecast()` skips if `state == FishingState.WAITING || state == FishingState.BITING`. The `WAITING` check handles the case where the server automatically recasts the rod (some Hypixel modes do this) — if a bobber has already appeared by the time the recast fires, there is no need to cast again. The `BITING` check handles an edge case where a new bite signal appears extremely quickly.
+`DisplayActions.showTitle(String, String)` wraps its string in `Text.literal()` internally, which does not parse `§` codes. Poseidon therefore bypasses it and calls `mc.inGameHud.setTitle()` directly with a `MutableText` built by `parseLegacyText()`. Both `&` and `§` are accepted; colour codes reset style flags to match vanilla.
 
-### Why Only 5 Trigger Slots?
+### Sea Creature Deduplication
 
-Trigger slots are serialized as a fixed-length list in the config JSON and the YACL UI generates one group per slot. A fixed count of 5 was chosen because Hypixel Skyblock fishing typically needs only 2–3 practical triggers (e.g., "sea creature appeared", "rare creature appeared", "stop on special drop"). Five slots gives margin without making the config screen unwieldy. The list is not hard-limited internally — `getTriggerLevels()` returns whatever the list contains — but the UI and defaults always produce exactly 5.
+Hypixel periodically refreshes sea creature nameplate display entities (new entity ID, same physical mob). Without deduplication, each refresh would count as a new catch. The fix stores `lastX`/`lastZ` for each tracked creature (updated every cleanup cycle while the entity is visible) and checks proximity (3-block radius) before adding a same-named entity to the list.
 
-### Why is `shouldBlockRightClick()` Only True for WAITING and BITING?
+### `shouldBlockRightClick()` and GUIs
 
-In `IDLE` state: no cast is active, so right-click should work normally (it casts the rod).
-In `REELING` state: the reel-in has already been sent, so the right-click guard would block a second reel-in. The 10-tick window between the reel-in send and the IDLE reset is short enough that this is not a problem in practice. If the guard were active during `REELING`, a player who clicked to reel in manually after the bot sent the key would be blocked from doing so.
+The right-click guard is lifted inside GUI screens because: (a) you cannot cancel a cast through a container/menu anyway, and (b) blocking right-click inside a GUI prevents normal item interactions (picking up items, clicking slots). The guard returns to full strength the moment `mc.currentScreen` is null again.
 
-### DisplayActions (PlayerAPI)
+### Idle Watchdog
 
-Poseidon uses `DisplayActions.showTitle(title, subtitle)` from PlayerAPI. This class was added to PlayerAPI to wrap Minecraft's `InGameHud` title display functionality. It lets Poseidon show a large on-screen MC title when a chat trigger fires, without importing Minecraft's `InGameHud` directly.
+After `scheduleRecast` fires `tapKey`, `lastRecastTick` is stamped. If the IDLE state persists for more than 100 ticks without a bobber appearing, the watchdog fires again. This recovers from two failure modes: (1) the `tapKey` packet was dropped by the server, and (2) the bobber surfaced and vanished within a single tick before the IDLE case ran, leaving the state machine with nothing to act on.
 
-### Area as Fallback Key
+### hookStuckAutoRecast vs. autoRecast
 
-The `seaCreatureCapByArea` map uses the area string exactly as read from the Hypixel tab list "Area:" line. The map falls back to the Hub cap for any unrecognised string. This means if Hypixel changes an island's display name, the affected island silently falls back to Hub's cap rather than crashing. Hub itself falls back to hardcoded `10` if not in the map.
+These are intentionally separate. A player may prefer manual-cast mode (global `autoRecast = false`) so they decide when to cast, but still wants the bot to auto-recover when the hook gets stuck on a mob — which isn't a "catch" and should always retry. `hookStuckAutoRecast` covers exactly that case without forcing global auto-recast on.
 
-### Thread Safety
+### GSON Boolean Default Caveat
 
-`PoseidonLogger.recentLines` is synchronized because `getRecentLines()` is called from the render thread while `log()` is called from the game thread. All other state (`FishingManager`, `FishingConfig`) is only touched on the main client thread (via `TICK` event and `Scheduler` callbacks), so no synchronization is needed there.
-
+GSON deserializes objects by bypassing constructors. Java field initializers such as `private boolean foo = true` are never run during GSON deserialization. Any boolean that should default to `true` in an existing config (i.e., one that was written before the field existed) must be injected in its migration step. This is why migrations v2→v3, v4→v5, v5→v6, v6→v7, v9→v10, and v10→v11 all explicitly inject `true` for their new boolean fields.

@@ -1,7 +1,7 @@
 # Poseidon — Design & Documentation
 
-**Version:** current (config schema v6)
-**Platform:** Fabric 1.21.11, Java 21
+**Version:** 1.1.0 (config schema v13)
+**Platform:** Fabric 26.1.2, Java 21
 **Dependencies:** PlayerAPI, Fabric API, YACL v3, ModMenu (optional)
 **Mod ID:** `poseidon`
 **Entry point:** `com.poseidon.PoseidonMod`
@@ -22,7 +22,7 @@ Poseidon is a **client-side fishing automation bot** for Hypixel Skyblock. It wa
 
 | Dependency | Version field | Location |
 |------------|--------------|----------|
-| PlayerAPI | `playerapi_version` in `gradle.properties` | `C:\Users\willi\Documents\FarmBot\PlayerAPI` |
+| PlayerAPI | `playerapi_version` in `gradle.properties` | `C:\Users\willi\Documents\completeMods\PlayerAPI` |
 
 **Build order:** If you changed PlayerAPI, run `./gradlew publishToMavenLocal` there first, then build Poseidon.
 
@@ -180,7 +180,13 @@ onTick() each game tick:
 └── handleKeybinds() — polls keybind presses
 
 onChatReceived(sender, message):
-└── checks message against FishingConfig.getTriggerLevels()
+├── isFromServer() gate — rejects player chat (signed sender, or Hypixel
+│   "[rank] Name: …" / "Guild > …" shape). All alerts below are server-only.
+├── RebootAlertManager.onChatReceived()
+├── Golden Fish: if enabled + bot active + phrase matches →
+│   golden title, sound, reel in, stop bot (returns; bypasses catch window)
+└── catch triggers: within catch window + isCatchMessage() →
+    check FishingConfig.getTriggerLevels()
     └── first match: plays sound, shows title, calls FishingManager.notifyTriggerFired()
 
 FishingManager.tick() (only when active):
@@ -522,6 +528,21 @@ Contains a header label explaining trigger syntax, then five `OptionGroup` block
 | Interval | 15 ticks |
 
 The bite alert is silent by default (`durationSeconds=0`). The `AlarmSound.play()` method returns early if duration is 0.
+
+> The live config screen also has **Bait**, **Stats & Reboot Alert**, and **Updates** tabs (added in 1.1.0) between the ones documented above; their options map directly to the corresponding `FishingConfig` getters/setters.
+
+### Golden Fish Tab
+
+Optional alert (off by default). Built by `buildGoldenFishCategory()`.
+
+| Setting | Type | Default |
+|---------|------|---------|
+| Golden Fish Alert | boolean | false |
+| Trigger Phrase | string | `spot a Golden Fish surface` (comma-separated, case-insensitive) |
+| Title Text | string | `§6§lGOLDEN FISH` (supports `§`/`&` codes) |
+| Alert Sound (5 fields) | AlarmSound | `entity.player.levelup`, 4s duration |
+
+When the phrase matches a server message while the bot is active, Poseidon shows the title, plays the sound, reels in any active cast, and stops the bot (`FishingManager.handleGoldenFish()`). This is checked in `onChatReceived()` ahead of the catch-window/catch-message gates, since the announcement can arrive at any time while fishing.
 
 ### Tab 5 — Developer
 

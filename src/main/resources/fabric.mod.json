@@ -17,11 +17,11 @@
   },
   "mixins": ["poseidon.mixins.json"],
   "depends": {
-    "fabricloader": ">=0.18.0",
-    "minecraft": "~1.21.11",
-    "java": ">=21",
+    "fabricloader": ">=0.19.0",
+    "minecraft": "~26.1",
+    "java": ">=25",
     "fabric-api": "*",
-    "playerapi": "*",
+    "playerapi": ">=1.12.0",
     "yet_another_config_lib_v3": "*"
   },
   "suggests": {

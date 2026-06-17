@@ -4,10 +4,11 @@ import com.poseidon.core.FishingConfig;
 import com.poseidon.core.FishingManager;
 import com.poseidon.core.FishingState;
 import com.poseidon.core.PoseidonLogger;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.font.TextRenderer;
-import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.render.RenderTickCounter;
+import com.poseidon.core.RebootAlertManager;
+import net.minecraft.client.DeltaTracker;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.Font;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 
 import java.util.List;
 
@@ -35,15 +36,16 @@ public class PoseidonHudRenderer {
     public static boolean isHudVisible() { return hudVisible; }
     public static void setHudVisible(boolean v) { hudVisible = v; }
 
-    public static void render(DrawContext ctx, RenderTickCounter tick) {
+    public static void render(GuiGraphicsExtractor ctx, DeltaTracker tick) {
         if (!hudVisible) return;
-        MinecraftClient client = MinecraftClient.getInstance();
+        Minecraft client = Minecraft.getInstance();
         if (client.player == null) return;
 
         FishingManager mgr = FishingManager.getInstance();
         FishingState state  = mgr.getState();
         boolean active      = mgr.isActive();
-        boolean hasBobber   = client.player.fishHook != null;
+        boolean hasBobber   = client.player.fishing != null;
+        boolean rebootAlert = RebootAlertManager.getInstance().isAlertActive();
 
         int stateCol = switch (state) {
             case IDLE    -> active ? 0xFFFFAA00 : 0xFFEE4444;
@@ -53,28 +55,54 @@ public class PoseidonHudRenderer {
         };
 
         FishingConfig cfg    = FishingConfig.getInstance();
-        boolean trackSC     = cfg.isTrackSeaCreatures();
-        int trackedCount    = mgr.getTrackedCount();
-        String area         = mgr.getCurrentArea();
-        int scCap           = cfg.getCapForArea(area);
+        boolean trackSC      = cfg.isTrackSeaCreatures();
+        int trackedCount     = mgr.getTrackedCount();
+        String area          = mgr.getCurrentArea();
+        int scCap            = FishingConfig.SEA_CREATURE_CAP;
+        boolean showBait     = cfg.isBaitHudVisible();
+        boolean showStats    = cfg.isFishingStatsHudVisible();
+        boolean slugfishMode = cfg.isSlugfishMode();
+        long    slugRemain   = mgr.getSlugfishRemainingTicks(); // Long.MIN_VALUE = mode off / no bobber
 
-        // Rows: Active, State, Bobber, [Area], [SC count]
-        int rows = 3 + (trackSC ? (area.isBlank() ? 1 : 2) : 0);
+        // Collect stats — only show section if at least one value is known
+        String statSpeed    = mgr.getStatFishingSpeed();
+        String statSCC      = mgr.getStatSeaCreatureChance();
+        String statDHC      = mgr.getStatDoubleHookChance();
+        String statTreasure = mgr.getStatTreasureChance();
+        boolean hasAnyStats = showStats &&
+                (!statSpeed.isEmpty() || !statSCC.isEmpty() || !statDHC.isEmpty() || !statTreasure.isEmpty());
+
+        // Row count: core rows + optional rows
+        int rows = 3                                                      // Active, State, Bobber
+                + (rebootAlert ? 1 : 0)                                   // Reboot warning
+                + (slugfishMode ? 1 : 0)                                  // Slugfish timer
+                + (showBait ? 1 : 0)                                      // Bait
+                + (trackSC ? (area.isBlank() ? 1 : 2) : 0)               // [Area,] SC
+                + (hasAnyStats ? 4 : 0);                                  // DHC, SCC, Speed, Treasure
         int ph = HEADER + 1 + PAD + rows * LINE + PAD;
 
+        // Accent stripe: flash red when reboot is imminent
+        int accentCol = rebootAlert ? 0xFFFF4444 : stateCol;
+
         fill(ctx, PX, PY, PW, ph, BG);
-        fill(ctx, PX, PY, ACCENT, ph, stateCol);
+        fill(ctx, PX, PY, ACCENT, ph, accentCol);
         fill(ctx, PX + ACCENT, PY, PW - ACCENT, HEADER, 0x18FFFFFF);
         fill(ctx, PX + ACCENT, PY + HEADER, PW - ACCENT, 1, 0x30FFFFFF);
 
-        TextRenderer tr = client.textRenderer;
-        ctx.drawText(tr, "Poseidon", PX + LX_OFF, PY + 3, 0xFFAAAAAA, false);
+        Font tr = client.font;
+        ctx.text(tr, "Poseidon", PX + LX_OFF, PY + 3, 0xFFAAAAAA, false);
         String stateLabel = active ? state.name() : "OFF";
-        ctx.drawText(tr, stateLabel, PX + PW - tr.getWidth(stateLabel) - 5, PY + 3, stateCol, false);
+        ctx.text(tr, stateLabel, PX + PW - tr.width(stateLabel) - 5, PY + 3, stateCol, false);
 
         int y  = PY + HEADER + 1 + PAD;
         int lx = PX + LX_OFF;
         int vx = PX + VX_OFF;
+
+        // Reboot warning — shown first so it's impossible to miss
+        if (rebootAlert) {
+            kv(ctx, tr, lx, vx, y, "! Reboot", "SOON", 0xFFFF4444);
+            y += LINE;
+        }
 
         kv(ctx, tr, lx, vx, y, "Active", active ? "Yes" : "No",
                 active ? 0xFF44EE44 : 0xFFEE4444);
@@ -87,10 +115,43 @@ public class PoseidonHudRenderer {
         String bobberLabel = !hasBobber            ? "None"
                            : nearbyText.isBlank()  ? "Detected"
                            : nearbyText;
-        int bobberCol = !hasBobber            ? 0xFF888888   // no bobber — grey
-                      : !nearbyText.isBlank() ? 0xFFFFCC00   // countdown visible — yellow
-                      :                        0xFF44EE44;  // bobber only — green
+        int bobberCol = !hasBobber            ? 0xFF888888
+                      : !nearbyText.isBlank() ? 0xFFFFCC00
+                      :                        0xFF44EE44;
         kv(ctx, tr, lx, vx, y, "Bobber", bobberLabel, bobberCol);
+
+        if (slugfishMode) {
+            y += LINE;
+            String slugVal;
+            int    slugCol;
+            if (slugRemain == Long.MIN_VALUE) {
+                // Mode on but no bobber out yet
+                slugVal = "--";
+                slugCol = 0xFF888888;
+            } else if (slugRemain <= 0) {
+                // Timer elapsed — slugfish can bite
+                slugVal = "READY";
+                slugCol = 0xFF44EE44;
+            } else {
+                // Counting down — show whole seconds remaining (ceil)
+                int secs = (int)((slugRemain + 19) / 20);
+                slugVal = secs + "s";
+                slugCol = 0xFFFFAA00;
+            }
+            kv(ctx, tr, lx, vx, y, "Slug", slugVal, slugCol);
+        }
+
+        if (showBait) {
+            y += LINE;
+            String baitName = mgr.getBaitName();
+            boolean hasBait = !baitName.isEmpty();
+            String baitVal  = hasBait
+                    ? (baitName.length() > 18 ? baitName.substring(0, 18) + ".." : baitName)
+                      + " (" + mgr.getBaitCount() + ")"
+                    : "No Bait";
+            int baitCol = hasBait ? VALUE_COL : 0xFFEE4444;
+            kv(ctx, tr, lx, vx, y, "Bait", baitVal, baitCol);
+        }
 
         if (trackSC) {
             if (!area.isBlank()) {
@@ -101,6 +162,17 @@ public class PoseidonHudRenderer {
             boolean atCap = trackedCount >= scCap;
             int scCol = atCap ? 0xFFFF4444 : (trackedCount > 0 ? 0xFFFFAA00 : 0xFF888888);
             kv(ctx, tr, lx, vx, y, "SC", trackedCount + " / " + scCap, scCol);
+        }
+
+        if (hasAnyStats) {
+            y += LINE;
+            kv(ctx, tr, lx, vx, y, "DHC",      statDHC.isEmpty()      ? "--" : statDHC,      VALUE_COL);
+            y += LINE;
+            kv(ctx, tr, lx, vx, y, "SCC",      statSCC.isEmpty()      ? "--" : statSCC,      VALUE_COL);
+            y += LINE;
+            kv(ctx, tr, lx, vx, y, "Speed",    statSpeed.isEmpty()    ? "--" : statSpeed,    VALUE_COL);
+            y += LINE;
+            kv(ctx, tr, lx, vx, y, "Treasure", statTreasure.isEmpty() ? "--" : statTreasure, VALUE_COL);
         }
 
         // Log panel
@@ -116,7 +188,7 @@ public class PoseidonHudRenderer {
             fill(ctx, PX, logY, ACCENT, logH, 0x88888888);
             fill(ctx, PX + ACCENT, logY, LOG_PW - ACCENT, HEADER, 0x10FFFFFF);
             fill(ctx, PX + ACCENT, logY + HEADER, LOG_PW - ACCENT, 1, 0x20FFFFFF);
-            ctx.drawText(tr, "LOG", PX + LX_OFF, logY + 3, 0xFF555555, false);
+            ctx.text(tr, "LOG", PX + LX_OFF, logY + 3, 0xFF555555, false);
 
             int ly = logY + HEADER + 1 + 2;
             for (int i = start; i < logs.size(); i++) {
@@ -124,20 +196,20 @@ public class PoseidonHudRenderer {
                 int msgStart = line.indexOf("] ");
                 if (msgStart >= 0) line = line.substring(msgStart + 2);
                 if (line.length() > 50) line = line.substring(0, 50) + "…";
-                ctx.drawText(tr, line, PX + LX_OFF, ly, 0xFF999999, false);
+                ctx.text(tr, line, PX + LX_OFF, ly, 0xFF999999, false);
                 ly += 9;
             }
         }
     }
 
-    private static void fill(DrawContext ctx, int x, int y, int w, int h, int color) {
+    private static void fill(GuiGraphicsExtractor ctx, int x, int y, int w, int h, int color) {
         ctx.fill(x, y, x + w, y + h, color);
     }
 
-    private static void kv(DrawContext ctx, TextRenderer tr,
+    private static void kv(GuiGraphicsExtractor ctx, Font tr,
                             int lx, int vx, int y,
                             String label, String value, int valueCol) {
-        ctx.drawText(tr, label, lx, y, LABEL_COL, false);
-        ctx.drawText(tr, value, vx, y, valueCol, false);
+        ctx.text(tr, label, lx, y, LABEL_COL, false);
+        ctx.text(tr, value, vx, y, valueCol, false);
     }
 }
