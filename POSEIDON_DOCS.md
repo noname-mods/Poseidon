@@ -10,10 +10,6 @@
 
 ---
 
-## AI Session Quick-Start
-
-> **Read this first if you are a new Claude Code session working in this folder.**
-
 ### What this mod is
 
 Poseidon is a **client-side fishing automation bot** for Hypixel Skyblock. It watches for the `!!!` bite signal entity near the fishing bobber, reacts with a configurable human-like delay, reels in, and optionally recasts. It also tracks sea creatures that spawn after catches, detects hooks stuck on mobs, and fires configurable sound/title alerts on chat patterns. It is built on top of PlayerAPI and never imports Minecraft internals for player input.
