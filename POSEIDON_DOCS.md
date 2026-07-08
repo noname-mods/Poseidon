@@ -1,125 +1,12 @@
 # Poseidon — Design & Documentation
 
-**Version:** 1.1.0 (config schema v13)
+**Version:** 1.1.2 (config schema v13)
 **Platform:** Fabric 26.1.2, Java 21
 **Dependencies:** PlayerAPI, Fabric API, YACL v3, ModMenu (optional)
 **Mod ID:** `poseidon`
 **Entry point:** `com.poseidon.PoseidonMod`
 **Config file:** `<game_dir>/config/poseidon/config.json`
 **Log file:** `<game_dir>/config/poseidon/poseidon.log`
-
----
-
-## AI Session Quick-Start
-
-> **Read this first if you are a new Claude Code session working in this folder.**
-
-### What this mod is
-
-Poseidon is a **client-side fishing automation bot** for Hypixel Skyblock. It watches for the `!!!` bite signal entity near the fishing bobber, reacts with a configurable human-like delay, reels in, and optionally recasts. It also tracks sea creatures that spawn after catches, detects hooks stuck on mobs, and fires configurable sound/title alerts on chat patterns. It is built on top of PlayerAPI and never imports Minecraft internals for player input.
-
-### Key dependency
-
-| Dependency | Version field | Location |
-|------------|--------------|----------|
-| PlayerAPI | `playerapi_version` in `gradle.properties` | `C:\Users\willi\Documents\completeMods\PlayerAPI` |
-
-**Build order:** If you changed PlayerAPI, run `./gradlew publishToMavenLocal` there first, then build Poseidon.
-
-### Source layout (what lives where)
-
-```
-src/main/java/com/poseidon/
-├── PoseidonMod.java                  — entry point, event wiring, keybinds, /poseidon command
-├── core/
-│   ├── FishingState.java             — enum: IDLE / WAITING / BITING / REELING
-│   ├── FishingManager.java           — THE central singleton: full state machine + all fishing logic
-│   ├── FishingConfig.java            — all persistent settings, JSON config, versioned migrations
-│   └── PoseidonLogger.java           — ring-buffer logger + file output
-├── gui/
-│   ├── PoseidonHudRenderer.java      — HUD overlay (Active, State, Bobber, Area, SC rows + log panel)
-│   └── PoseidonConfigScreen.java     — YACL config screen (5 tabs)
-├── mixin/
-│   └── MouseClickMixin.java          — blocks right-click while WAITING or BITING (prevents cast cancel)
-└── modmenu/
-    └── PoseidonModMenuPlugin.java    — ModMenu integration
-```
-
-### Config file — `<game>/config/poseidon/config.json`
-
-Schema is versioned (`configVersion`, currently **6**). Auto-migrated on load.
-
-**Version history at a glance:**
-- v0→v1: flat `biteAlert*` fields → `biteAlertSound` object; `triggerLevels` added
-- v1→v2: single `seaCreatureCap` int → `seaCreatureCapByArea` Map
-- v2→v3: `autoRecast` added (migration needed — GSON defaults bool to `false`)
-- v3→v4: `recastDecisionTicks` added
-- v4→v5: `despawnWarningEnabled` + `despawnWarningMinutes` added
-- v5→v6: `hookStuckDetectionEnabled` + `hookStuckMaxDistance` added
-
-**Rule:** Any new boolean field that should default to `true` needs a migration step — GSON bypasses constructors and will produce `false` for missing fields.
-
-**Adding a migration:**
-1. Bump `CURRENT_VERSION` in `FishingConfig`
-2. Add a `private static JsonObject migrateVn(JsonObject json)` method
-3. Call it in `migrate()` with the appropriate version check
-
-### The state machine (FishingManager)
-
-```
-IDLE → WAITING    when bobber appears (fishHook != null)
-WAITING → BITING  when detectBite() finds !!! entity near bobber
-WAITING → IDLE    if bobber disappears
-BITING → REELING  when scheduled reel-in fires (after reaction delay)
-BITING → IDLE     if bobber disappears before reel-in fires
-REELING → IDLE    after 10-tick reset
-```
-
-Everything important happens in `FishingManager.tick()`, called every tick from `PoseidonMod.onTick()`. The recast decision window (`recastDecisionTicks`) is the gap between the reel-in send and the recast — it exists so chat triggers have time to arrive and set `pendingSuppressRecast` / `pendingStopBot` flags.
-
-### PlayerAPI classes used by Poseidon
-
-| Class | Used for |
-|-------|---------|
-| `PlayerAPIEvents.TICK` | Main tick loop |
-| `PlayerAPIEvents.CHAT_RECEIVED` | Chat trigger matching |
-| `MovementActions.tapKey("use", 100)` | Reel in + recast |
-| `Scheduler.scheduleMs()` / `schedule()` | Reaction delay, recast delay, scan delay |
-| `TabListInfo.findLineContaining("Area:")` | Area refresh every 40 ticks |
-| `SoundActions.playByIdRepeated()` | All alarm sounds |
-| `DisplayActions.showTitle()` | Title overlay on trigger fire |
-| `PlayerInfo.isInWorld()` | Guard at top of onTick() |
-
-### Common things you'll need to touch
-
-**Adding a new detection feature:**
-- Main logic goes in `FishingManager` (tick loop or a scheduled callback)
-- Config fields go in `FishingConfig` with getter/setter + `save()` call
-- UI goes in `PoseidonConfigScreen` — use the existing `alarmSoundIdOption` / `alarmVolumeOption` etc. helpers for sound settings
-- If the new field defaults to `true`: add a migration in `FishingConfig`
-
-**Adding a new trigger action (beyond sound/title/dontRecast/stopBot):**
-- `TriggerLevel` fields are in `FishingConfig` (public inner class)
-- The matching loop is in `PoseidonMod.onChatReceived()`
-- Flags are consumed in `FishingManager.scheduleReelIn()` → recast decision callback
-- Add the new field to the YACL trigger group builder in `PoseidonConfigScreen.buildTriggerGroup()`
-
-**Adding a new per-island cap (new area):**
-- Add the area name string to `FishingConfig.KNOWN_AREAS`
-- Add a `capSlider()` call in `PoseidonConfigScreen.buildSeaCreatureCategory()`
-- `KNOWN_AREAS` must be declared **before** `INSTANCE` in `FishingConfig` — same static init order rule as Ceres/BotConfig
-
-**Changing bite detection logic:**
-- `detectBite()` and `hasReelNowSignal()` in `FishingManager`
-- Currently checks both `entity.getCustomName()` (armor stands) and `TextDisplayEntity.getText()` (display entities)
-
-### Key design rules
-
-- Poseidon never calls `mc.player` input methods directly — all input goes through `MovementActions`
-- The mixin (`MouseClickMixin`) is the **only** place Minecraft's `Mouse` class is touched
-- `FishingManager` and `FishingConfig` are both singletons — always access via `getInstance()`
-- `AlarmSound.play()` is a no-op when `durationSeconds <= 0` — this is how the bite alert is "off by default"
-- The bobber position is snapshotted at bite time (`lastBobberX/Y/Z`) because `fishHook` will be null by the time delayed scan callbacks fire
 
 ---
 
@@ -315,7 +202,7 @@ Called from `PoseidonMod.onChatReceived()` when a trigger matches during a catch
 While in `WAITING` state, `scanNearbyText()` scans the same detection box for any entity text that:
 - Is not blank
 - Does not contain `!!!` (the bite signal)
-- Does not contain `⚓` (a sea creature name plate)
+- Does not contain a sea-creature type glyph (`U+E072` / `U+E07D`) — i.e. a sea creature name plate
 
 The first match (truncated to 20 characters) is stored as `nearbyText` and shown in the HUD Bobber row. This captures the yellow countdown timers that Hypixel displays before a bite window opens.
 
@@ -722,20 +609,22 @@ If a trigger fires **after** the decision window closes, the flags are ignored. 
 
 ### Overview
 
-After each reel-in, Poseidon scans for entities near the bobber position bearing the ⚓ anchor character (U+2693). This is the prefix Hypixel uses on sea creature name plates. New creatures are added to a `List<TrackedSeaCreature>` with their entity ID, name, and spawn tick.
+After each reel-in, Poseidon scans for entities near the bobber position bearing the resource pack's sea-creature type glyph — water = Aquatic (`U+E072`), lava = Magmatic (`U+E07D`). These are the prefixes Hypixel's mandatory pack uses on sea creature name plates. New creatures are added to a `List<TrackedSeaCreature>` with their entity ID, name, and spawn tick.
 
 ### Detection Mechanism
 
+The markers are centralised in `FishingManager.SEA_CREATURE_MARKERS` (the Aquatic / Magmatic glyphs); `matchedMarker(text)` returns the first one found (or `null`).
+
 `isSeaCreatureDisplay(Entity entity)`:
-- Checks `entity.getCustomName().getString().contains("⚓")` for armor stands / mob name plates
-- Checks `TextDisplayEntity.getText().getString().contains("⚓")` for text display entities
+- Checks `matchedMarker(entity.getCustomName().getString())` for armor stands / mob name plates
+- Checks `matchedMarker(TextDisplayEntity.getText().getString())` for text display entities
 
 `extractCreatureName(Entity entity)`:
 - Reads raw entity text
-- Finds the `⚓` character, takes everything after it (trimmed)
+- Finds the matched type glyph, takes everything after it (trimmed) — `marker.length()` handles the multi-char PUA glyph correctly
 - Strips from the first digit onward (start of the HP value)
 - Returns the resulting name, or `"Unknown"` if parsing fails
-- Full format Hypixel uses: `"[LvN] ⚓ CreatureName HP/MaxHP❤"`
+- Full format Hypixel uses: `"[LvN] <type-glyph> CreatureName HP/MaxHP❤"`
 
 ### Scan Timing
 

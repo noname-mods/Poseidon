@@ -25,7 +25,7 @@ Define up to 5 keyword triggers that match incoming catch messages. Each trigger
 - Suppress the next auto-recast
 - Stop the bot entirely (HUD stays open)
 
-Triggers only fire within 10 seconds of a reel-in and are filtered to Hypixel catch-related messages (`§a` catch lines, `§e` double hook announcements, `⛃` treasure messages), so unrelated chat never causes a false trigger.
+Triggers only fire within 10 seconds of a reel-in and are filtered to Hypixel catch-related messages (`§a` catch lines, `§e` double hook announcements, and treasure lines prefixed with the resource pack's treasure icon `U+E025`), so unrelated chat never causes a false trigger.
 
 **Server-message gate.** Every chat alert in Poseidon — chat triggers, the reboot alert, and the Golden Fish alert — reacts only to messages from the server, never to player chat. A player typing a trigger phrase (or the Golden Fish line) in chat can't drive the bot. Signed player messages are rejected by their sender, and Hypixel-style reformatted player chat (`[rank] Name: …`, `Guild > …`, DMs) is rejected by shape.
 
@@ -45,7 +45,7 @@ Detects Hypixel's scheduled-reboot server message and plays a looping alarm unti
 Watches chat for the Golden Fish surface message. When it appears, Poseidon shows a golden title card, plays an alert sound, reels in any active cast, and stops the bot — handing control to you so you can catch the Golden Fish manually. Re-enable the bot afterwards to resume. The trigger phrase, title text, and sound are all configurable in the Golden Fish config tab.
 
 ### Sea Creature Tracking
-After each reel-in, Poseidon scans the area for `⚓` nameplate entities. Tracked creatures are shown in the HUD and you get an alert when you hit the Hypixel cap of 10. A second alert fires when a creature approaches its despawn timer (~6 minutes) so you know to kill it before it vanishes. Nameplate entity refreshes (same creature, new ID) are detected by position and handled correctly — no false double-counts.
+After each reel-in, Poseidon scans the area for sea-creature nameplate entities (identified by the resource pack's water/lava type icon). Tracked creatures are shown in the HUD and you get an alert when you hit the Hypixel cap of 10. A second alert fires when a creature approaches its despawn timer (~6 minutes) so you know to kill it before it vanishes. Nameplate entity refreshes (same creature, new ID) are detected by position and handled correctly — no false double-counts.
 
 ### Bobber Drift Detection
 If the hook attaches to a moving entity, the bobber drifts away from where it landed. Poseidon detects drift beyond a configurable horizontal threshold (after a 1-second settle period), plays an alert, reels in, and optionally recasts — keeping the bot from stalling on a moving target. Auto-recast on drift is a separate toggle from the global auto-recast setting.
@@ -121,7 +121,7 @@ The in-game update checker is Minecraft-version aware: if the latest release tar
 
 # Poseidon — Design & Documentation
 
-**Version:** 1.1.0 (config schema v13)  
+**Version:** 1.1.2 (config schema v13)  
 **Platform:** Fabric 26.1.2, Java 21  
 **Dependencies:** PlayerAPI, Fabric API, YACL v3, ModMenu (optional)  
 **Mod ID:** `poseidon`  
@@ -192,7 +192,7 @@ onTick() each game tick:
 onChatReceived(sender, message):
 ├── RebootAlertManager.onChatReceived() — always runs
 ├── Guard: isInCatchWindow() — only within 10s of a reel-in
-├── Guard: isCatchMessage() — §a, §e, or ⛃-prefixed only
+├── Guard: isCatchMessage() — §a, §e, or treasure-icon (U+E025) prefixed only
 └── iterates FishingConfig.getTriggerLevels(), first match fires
 
 FishingManager.tick() (only when active):
@@ -520,7 +520,7 @@ Injects at `HEAD` of `Mouse.onMouseButton()`, cancellable. Blocks right-click wh
 
 1. `RebootAlertManager.getInstance().onChatReceived(sender, message)` — always runs
 2. `if (!FishingManager.getInstance().isInCatchWindow()) return` — timing gate
-3. `if (!isCatchMessage(message)) return` — colour gate (`§a`, `§e`, `⛃`)
+3. `if (!isCatchMessage(message)) return` — colour gate (`§a`, `§e`, or treasure icon `U+E025`)
 4. Iterate trigger levels; first match: play sound, show title (via `parseLegacyText()`), call `notifyTriggerFired()`
 
 ### showTitle / parseLegacyText
@@ -534,7 +534,7 @@ Injects at `HEAD` of `Mouse.onMouseButton()`, cancellable. Blocks right-click wh
 ### Gates (both must pass before patterns are checked)
 
 1. **Timing gate:** `isInCatchWindow()` — true for 200 ticks (10 s) after the reel-in `tapKey` fires.
-2. **Colour gate:** `isCatchMessage(msg)` — true if msg starts with `§a` (green catch), `§e` (yellow/gold, e.g. Double Hook), or has `⛃` as the first non-format-code character (treasure catch).
+2. **Colour gate:** `isCatchMessage(msg)` — true if msg starts with `§a` (green catch), `§e` (yellow/gold, e.g. Double Hook), or has the treasure icon (`U+E025`) as the first non-format-code character (treasure catch).
 
 ### TriggerLevel Fields
 
@@ -560,9 +560,9 @@ String    titleText   // supports &x / §x colour codes; falls back to name
 
 ### Detection
 
-`isSeaCreatureDisplay(Entity)` — checks for `⚓` (U+2693) in custom name or `TextDisplayEntity` text.
+`isSeaCreatureDisplay(Entity)` — checks for the resource pack's water (Aquatic, `U+E072`) or lava (Magmatic, `U+E07D`) type glyph in custom name or `TextDisplayEntity` text.
 
-`extractCreatureName(Entity)` — strips `[LvN] ⚓ ` prefix and HP suffix from the full nameplate text.
+`extractCreatureName(Entity)` — strips the `[LvN] <type-glyph> ` prefix and HP suffix from the full nameplate text.
 
 ### Scan Timing
 
@@ -785,7 +785,7 @@ Rather than checking all chat, triggers only run within 10 s of a reel-in. This 
 
 ### Colour Gate for Triggers
 
-`isCatchMessage()` strips leading `§X` format-code pairs and checks the remaining content. `§a` covers normal catch lines; `§e` covers the Double Hook announcement (`§e§lDOUBLE HOOK!`) that precedes a catch; `⛃` covers treasure catches which use a variable colour prefix. Any other colour prefix (red death notices, gray system messages) is rejected before pattern matching runs.
+`isCatchMessage()` strips leading `§X` format-code pairs and checks the remaining content. `§a` covers normal catch lines; `§e` covers the Double Hook announcement (`§e§lDOUBLE HOOK!`) that precedes a catch; the treasure icon (`U+E025`) covers treasure catches, which use a variable colour prefix. Any other colour prefix (red death notices, gray system messages) is rejected before pattern matching runs.
 
 ### parseLegacyText()
 

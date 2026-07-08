@@ -354,8 +354,8 @@ public class PoseidonConfigScreen {
                         .name(Component.literal("Enable Tracking"))
                         .description(OptionDescription.of(Component.literal(
                                 "After each reel-in, scan near the bobber for sea creature name plates\n" +
-                                "(identified by the ⚓ anchor icon). Tracked creatures are shown in the\n" +
-                                "HUD as SC: count / cap. Creatures are removed when they disappear.")))
+                                "(identified by the resource pack's water/lava type icon). Tracked creatures\n" +
+                                "are shown in the HUD as SC: count / cap. Creatures are removed when they disappear.")))
                         .binding(true, cfg::isTrackSeaCreatures, cfg::setTrackSeaCreatures)
                         .controller(BooleanControllerBuilder::create)
                         .build())

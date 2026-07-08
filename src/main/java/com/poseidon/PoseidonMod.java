@@ -225,17 +225,26 @@ public class PoseidonMod implements ClientModInitializer {
      *   <li>{@code §a} — green: normal sea creature / fish catch lines.</li>
      *   <li>{@code §e} — yellow/gold: special announcements such as
      *       {@code §e§lDOUBLE HOOK!} that arrive just before the catch line.</li>
-     *   <li>{@code §X⛃} — any colour followed immediately by the treasure chest
-     *       icon (U+26C3): Hypixel treasure catch messages. The colour code is
-     *       stripped before checking so any prefix colour is accepted.</li>
+     *   <li>{@code §X<treasure>} — any colour followed immediately by the treasure
+     *       chest icon: Hypixel treasure catch messages. The colour code is stripped
+     *       before checking so any prefix colour is accepted.</li>
      * </ul>
      */
+    /**
+     * Catch icon the mandatory resource pack prefixes onto Hypixel catch lines
+     * (U+E025) — confirmed against a live message: " GOOD CATCH! You caught …".
+     * The pre-pack {@code ⛃} (U+26C3) was dropped once the pack went mandatory.
+     */
+    private static final char[] TREASURE_ICONS = { 0xE025 };
+
     private static boolean isCatchMessage(String msg) {
         if (msg.startsWith("§a") || msg.startsWith("§e")) return true;
-        // Strip leading §X format-code pairs (§ + one char each) then check for ⛃
+        // Strip leading §X format-code pairs (§ + one char each) then check the icon.
         String s = msg;
         while (s.length() >= 2 && s.charAt(0) == '§') s = s.substring(2);
-        return s.startsWith("⛃");
+        if (s.isEmpty()) return false;
+        for (char c : TREASURE_ICONS) if (s.charAt(0) == c) return true;
+        return false;
     }
 
     private static void showTitle(FishingConfig.TriggerLevel level) {

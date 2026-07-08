@@ -4,6 +4,16 @@
 
 ---
 
+## [1.1.2] - 2026-07-08
+
+### Changed
+- **Resource pack now required (dropped pre-pack symbols).** Hypixel's resource pack is live and
+  mandatory, so the temporary dual-support from 1.1.1 is gone. Sea-creature detection now keys only
+  on the pack's water (Aquatic) / lava (Magmatic) type glyphs, and treasure catch detection only on
+  the pack's treasure glyph. The old ⚓ / ♆ / ⛃ symbols are no longer matched.
+
+---
+
 ## [1.2.0] — Coming Soon
 
 ### Planned
@@ -11,6 +21,23 @@
   is yours more accurately, reducing false positives from nearby players' catches.
 - **Action implementation** — the reserved `action` field on chat triggers will be wired up,
   enabling per-trigger behaviours beyond the current sound / title / stop-bot options.
+
+---
+
+## [1.1.1] - 2026-06-30
+
+### Changed
+- **Sea-creature detection: new mandatory resource pack support (dual).** Hypixel's mandatory pack
+  replaces the mob-type nameplate symbols with custom Private-Use-Area glyphs. Detection now matches
+  **both** the old symbols and the new glyphs, so this build works before *and* after the pack ships:
+  - water: `⚓` (U+2693) **or** Aquatic `U+E072`
+  - lava:  `♆` (U+2646) **or** Magmatic `U+E07D`
+
+  The old symbols will be dropped in a later release once the pack is fully mandatory.
+- Markers are now centralised in `SEA_CREATURE_MARKERS`, and name extraction uses the matched
+  marker's length (so multi-character glyphs parse correctly).
+- **Treasure catch detection** likewise matches both the old `⛃` (U+26C3) and the new pack glyph
+  (U+E025), so treasure triggers keep working across the transition.
 
 ---
 

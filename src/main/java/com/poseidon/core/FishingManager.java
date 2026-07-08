@@ -20,8 +20,8 @@ import java.util.List;
  * near the bobber (the server places this entity during the catch window).
  *
  * Sea creature tracking: after each reel-in, scans for entities bearing the
- * anchor ⚓ (water) or trident ♆ (lava) symbol (Hypixel Skyblock sea creature
- * name plates). Tracked
+ * resource pack's water (Aquatic) or lava (Magmatic) type glyph (Hypixel Skyblock
+ * sea creature name plates). Tracked
  * creatures are stored in a list; dead / despawned creatures are removed
  * every {@value #CLEANUP_PERIOD_TICKS} ticks. When the list reaches the
  * configured cap, a sound alert fires.
@@ -453,7 +453,7 @@ public class FishingManager {
 
     /**
      * Scans entities near the given position for an untracked sea creature name
-     * plate (identified by the anchor character used by Hypixel Skyblock).
+     * plate (identified by the resource pack's water/lava type glyph).
      * At most one creature is added per reel-in to avoid picking up other
      * players' nearby sea creatures. In the future this will be tightened
      * further by matching against the specific creature type from the catch
@@ -509,33 +509,49 @@ public class FishingManager {
     }
 
     /**
-     * Returns true if this entity is a Hypixel Skyblock sea creature name plate.
-     * Water sea creatures use the ⚓ anchor character (U+2693).
-     * Lava sea creatures use the ♆ trident character (U+2646).
+     * Characters that mark a Hypixel sea-creature name plate. Each entry is matched as
+     * a substring of the plate text; the matched marker is also where the creature name
+     * begins (everything after it, up to the HP digits, is the name).
+     *
+     * <p>These are the mandatory resource pack's custom Private-Use-Area glyphs:
+     * water = Aquatic (U+E072), lava = Magmatic (U+E07D). The pre-pack ⚓/♆ symbols
+     * were dropped once the pack went mandatory.</p>
+     */
+    private static final String[] SEA_CREATURE_MARKERS = {
+            String.valueOf((char) 0xE072), // Aquatic  — water sea creature
+            String.valueOf((char) 0xE07D), // Magmatic — lava sea creature
+    };
+
+    /** Returns the first sea-creature marker found in {@code s}, or {@code null} if none. */
+    private static String matchedMarker(String s) {
+        if (s == null) return null;
+        for (String m : SEA_CREATURE_MARKERS) {
+            if (!m.isEmpty() && s.contains(m)) return m;
+        }
+        return null;
+    }
+
+    /**
+     * Returns true if this entity is a Hypixel Skyblock sea creature name plate —
+     * i.e. its plate text contains one of {@link #SEA_CREATURE_MARKERS}.
      * Note: some non-sea-creature mobs may also carry these symbols. Proper
      * discrimination will be added in a future update using the catch chat message.
      */
     private boolean isSeaCreatureDisplay(Entity entity) {
         Component name = entity.getCustomName();
-        if (name != null) {
-            String s = name.getString();
-            if (s.contains("⚓") || s.contains("♆")) return true;
-        }
+        if (name != null && matchedMarker(name.getString()) != null) return true;
 
         if (entity instanceof net.minecraft.world.entity.Display.TextDisplay td) {
             Component text = td.getText();
-            if (text != null) {
-                String s = text.getString();
-                if (s.contains("⚓") || s.contains("♆")) return true;
-            }
+            if (text != null && matchedMarker(text.getString()) != null) return true;
         }
         return false;
     }
 
     /**
      * Best-effort extraction of the creature name from the display text.
-     * The full format is "[LvN] ⚓ CreatureName HP/MaxHP❤" (water)
-     * or "[LvN] ♆ CreatureName HP/MaxHP❤" (lava).
+     * The full format is "[LvN] &lt;marker&gt; CreatureName HP/MaxHP❤", where
+     * &lt;marker&gt; is one of {@link #SEA_CREATURE_MARKERS}.
      * Returns the full string if parsing fails.
      */
     private String extractCreatureName(Entity entity) {
@@ -548,11 +564,13 @@ public class FishingManager {
             raw = td.getText().getString();
         }
 
-        // Find whichever type symbol is present and strip it + everything after the HP
-        int symbol = raw.indexOf('⚓');
-        if (symbol < 0) symbol = raw.indexOf('♆');
-        if (symbol >= 0 && symbol + 2 < raw.length()) {
-            String afterSymbol = raw.substring(symbol + 2).trim();
+        // Strip everything up to and including the type marker, then take up to the HP.
+        String marker = matchedMarker(raw);
+        if (marker != null) {
+            int idx = raw.indexOf(marker);
+            // marker.length() handles multi-char (surrogate-pair) PUA glyphs correctly;
+            // trim() removes the space that follows the marker.
+            String afterSymbol = raw.substring(idx + marker.length()).trim();
             // Take up to the first digit (start of HP) or end of string
             int hpStart = afterSymbol.length();
             for (int i = 0; i < afterSymbol.length(); i++) {
