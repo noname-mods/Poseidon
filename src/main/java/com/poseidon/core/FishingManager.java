@@ -558,8 +558,19 @@ public class FishingManager {
                 // only after a real catch, not when the bobber vanished before the reel. Then
                 // recast once back on the rod slot. No abilities due → recast immediately.
                 if (reeled) {
-                    boolean atCap = tracked.size() >= FishingConfig.SEA_CREATURE_CAP;
-                    AbilityManager.getInstance().runDueAbilities(atCap, () -> scheduleRecast(cfg));
+                    if (AbilityManager.getInstance().hasAtCapAbilityEnabled()) {
+                        // The just-caught creature is added by the delayed scan, so tracked.size() is one
+                        // short right now. Wait a few ticks (past the first scan) for the count to settle so
+                        // the at-cap ability fires on the catch that actually reaches the cap — before the
+                        // next cast — instead of a cycle late.
+                        Scheduler.schedule(8, () -> {
+                            boolean atCap = tracked.size() >= FishingConfig.SEA_CREATURE_CAP;
+                            AbilityManager.getInstance().runDueAbilities(atCap, () -> scheduleRecast(cfg));
+                        });
+                    } else {
+                        // No at-cap ability → the count doesn't matter; run any constant abilities now.
+                        AbilityManager.getInstance().runDueAbilities(false, () -> scheduleRecast(cfg));
+                    }
                 } else {
                     scheduleRecast(cfg);
                 }

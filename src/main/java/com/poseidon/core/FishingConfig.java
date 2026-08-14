@@ -47,7 +47,7 @@ public class FishingConfig {
      *  16 — log split into its own movable HUD element (logVisible + logHud layout)
      *  17 — notInWaterRecastEnabled (default true) + logBobberParticles (default false)
      */
-    private static final int CURRENT_VERSION = 17;
+    private static final int CURRENT_VERSION = 18;
 
     /** Hypixel-standardised sea creature cap — same on every island. */
     public static final int SEA_CREATURE_CAP = 10;
@@ -69,6 +69,8 @@ public class FishingConfig {
     private boolean autoRecast          = true;
     private int     recastDelayMinMs    = 200;
     private int     recastDelayMaxMs    = 600;
+    /** Base ms between each ability step (switch to slot → use → switch back) — a human-ish pace. */
+    private int     abilityActionDelayMs = 400;
     /**
      * Ticks to wait after a reel-in before deciding whether to recast.
      * Gives post-catch chat time to arrive so triggers can suppress the recast.
@@ -400,6 +402,7 @@ public class FishingConfig {
                     this.reactionDelayMinMs = loaded.reactionDelayMinMs > 0 ? loaded.reactionDelayMinMs : 180;
                     this.reactionDelayMaxMs = loaded.reactionDelayMaxMs > 0 ? loaded.reactionDelayMaxMs : 700;
                     this.autoRecast         = loaded.autoRecast;
+                    this.abilityActionDelayMs = loaded.abilityActionDelayMs > 0 ? loaded.abilityActionDelayMs : 400;
                     this.recastDelayMinMs   = loaded.recastDelayMinMs  > 0 ? loaded.recastDelayMinMs  : 500;
                     this.recastDelayMaxMs   = loaded.recastDelayMaxMs  > 0 ? loaded.recastDelayMaxMs  : 1500;
                     this.debugMode          = loaded.debugMode;
@@ -519,7 +522,13 @@ public class FishingConfig {
         if (version < 15) json = migrateV14toV15(json);
         if (version < 16) json = migrateV15toV16(json);
         if (version < 17) json = migrateV16toV17(json);
+        if (version < 18) json = migrateV17toV18(json);
         json.addProperty("configVersion", CURRENT_VERSION);
+        return json;
+    }
+
+    private static JsonObject migrateV17toV18(JsonObject json) {
+        if (!json.has("abilityActionDelayMs")) json.addProperty("abilityActionDelayMs", 400);
         return json;
     }
 
@@ -680,6 +689,9 @@ public class FishingConfig {
 
     public boolean isAutoRecast() { return autoRecast; }
     public void setAutoRecast(boolean v) { autoRecast = v; save(); }
+
+    public int getAbilityActionDelayMs() { return abilityActionDelayMs; }
+    public void setAbilityActionDelayMs(int v) { abilityActionDelayMs = v; save(); }
 
     public int getRecastDelayMinMs() { return recastDelayMinMs; }
     public void setRecastDelayMinMs(int v) { recastDelayMinMs = v; save(); }

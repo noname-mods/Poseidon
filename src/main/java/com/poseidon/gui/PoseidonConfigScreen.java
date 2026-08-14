@@ -385,6 +385,15 @@ public class PoseidonConfigScreen {
                         "The camera is never moved. Both can be enabled at once — the Totem fires\n" +
                         "first, then Fire Veil."))
 
+                .option(Option.<Integer>createBuilder()
+                        .name(Component.literal("Action Speed (ms per step)"))
+                        .description(OptionDescription.of(Component.literal(
+                                "How long each step of an ability sequence takes — switch to the slot,\n" +
+                                "use it, switch back. Higher = slower and more human. Default 400 ms.")))
+                        .binding(400, cfg::getAbilityActionDelayMs, cfg::setAbilityActionDelayMs)
+                        .controller(opt -> IntegerSliderControllerBuilder.create(opt).range(100, 1000).step(50))
+                        .build())
+
                 .group(buildAbilityGroup("Fire Veil", cfg.getFireVeil(), cfg, 3.0, 20.0, 0.5))
 
                 .group(buildAbilityGroup("Totem of Corruption", cfg.getTotem(), cfg, 30.0, 320.0, 5.0,

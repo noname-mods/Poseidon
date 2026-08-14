@@ -27,7 +27,10 @@ dependencies {
 	// 26.1+ uses Mojang's own unobfuscated mappings — no Yarn mappings line needed.
 	implementation "net.fabricmc:fabric-loader:${project.loader_version}"
 	implementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
-	implementation "com.playerapi:playerapi:${project.playerapi_version}"
+	// Version RANGE, not an exact pin: PlayerAPI is additive/backwards-compatible, so accept the newest
+	// published build >= our floor. This lets a fresh clone build against whatever PlayerAPI version is in
+	// mavenLocal (e.g. after publishing latest PlayerAPI) instead of demanding this exact version.
+	implementation "com.playerapi:playerapi:[${project.playerapi_version},)"
 	compileOnly "com.terraformersmc:modmenu:${project.modmenu_version}"
 	implementation "dev.isxander:yet-another-config-lib:${project.yacl_version}"
 }

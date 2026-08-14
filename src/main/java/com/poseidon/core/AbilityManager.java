@@ -63,9 +63,15 @@ public final class AbilityManager {
     /** Last cast tick per ability (indexed by ordinal); -1 = never cast this session. */
     private final long[] lastCastTick;
 
-    // ── Human-ish spacing between sequence steps (ticks) ───────────────────────
-    private static int switchDelay() { return 3 + (int) (Math.random() * 4); } // 3–6 ticks
-    private static int useDelay()    { return 2 + (int) (Math.random() * 3); } // 2–4 ticks
+    // ── Human-ish spacing between sequence steps (ticks), scaled by the configured action delay ──
+    private static int switchDelay(FishingConfig cfg) {
+        return Math.max(2, cfg.getAbilityActionDelayMs() / 50) + (int) (Math.random() * 3);  // base + 0–2t jitter
+    }
+    private static int useDelay(FishingConfig cfg) {
+        return Math.max(2, cfg.getAbilityActionDelayMs() / 100) + (int) (Math.random() * 2);
+    }
+    /** Ticks between the Totem's first and second use (see the double-use note in runDueAbilities). */
+    private static final int TOTEM_RECLICK_TICKS = 10; // ~0.5s
 
     private static AbilityConfig cfgFor(Ability a, FishingConfig cfg) {
         return a == Ability.TOTEM ? cfg.getTotem() : cfg.getFireVeil();
@@ -119,18 +125,26 @@ public final class AbilityManager {
             final int idx = cfgFor(a, cfg).slot - 1;
             final Ability fa = a;
             Scheduler.schedule(t, () -> InventoryActions.switchToSlot(idx));
-            t += switchDelay();
-            Scheduler.schedule(t, () -> {
+            t += switchDelay(cfg);
+            final int useTime = t;
+            Scheduler.schedule(useTime, () -> {
                 InteractionActions.useItem();
                 lastCastTick[fa.ordinal()] = Scheduler.getCurrentTick();
                 PoseidonLogger.getInstance().logInfo("Ability used: " + fa.label);
             });
-            t += useDelay();
+            t += useDelay(cfg);
+            // The Totem sometimes doesn't register on a single use (placement/timing) — click it again
+            // ~0.5s after the first, which reliably fixes the "totem didn't activate" case.
+            if (fa == Ability.TOTEM) {
+                int second = useTime + TOTEM_RECLICK_TICKS;
+                Scheduler.schedule(second, InteractionActions::useItem);
+                t = Math.max(t, second + useDelay(cfg));
+            }
         }
 
         // Switch back to the rod once (not between abilities), then let the caller recast.
         Scheduler.schedule(t, () -> InventoryActions.switchToSlot(rodSlot));
-        t += switchDelay();
+        t += switchDelay(cfg);
         Scheduler.schedule(t, onDone);
     }
 
@@ -139,6 +153,13 @@ public final class AbilityManager {
     /** Whether this ability is enabled (mode is not OFF) — drives whether the HUD shows it. */
     public boolean isEnabled(Ability a) {
         return cfgFor(a, FishingConfig.getInstance()).mode != AbilityMode.OFF;
+    }
+
+    /** True if either ability is in AT_CAP mode — used to gate the sea-creature-count settle delay. */
+    public boolean hasAtCapAbilityEnabled() {
+        FishingConfig cfg = FishingConfig.getInstance();
+        for (Ability a : ORDER) if (cfgFor(a, cfg).mode == AbilityMode.AT_CAP) return true;
+        return false;
     }
 
     /** Seconds left in the active-effect window (>0 means "on"), else 0. */
