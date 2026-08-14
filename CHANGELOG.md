@@ -4,7 +4,7 @@
 
 ---
 
-## [1.2.0] — In development (beta, not yet released)
+## [1.2.0]
 
 ### Added
 - **Chat-confirmed, mob-anchored sea-creature detection.** Identifies the exact creature from its catch
