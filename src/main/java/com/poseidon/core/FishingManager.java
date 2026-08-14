@@ -54,6 +54,12 @@ public class FishingManager {
     private static final int FALLBACK_SCAN_DELAY_TICKS = 30;
     /** How often (in ticks) to remove creatures that have disappeared. */
     private static final int CLEANUP_PERIOD_TICKS = 40;
+    /**
+     * Hard cap on how long a creature may stay tracked (SkyHanni's {@code DESPAWN_TIME}, 6 min).
+     * A safety net only: normally a creature is dropped the moment its mob entity leaves the world.
+     * This catches the rare case where a mob is never seen to despawn (e.g. it unloaded far away).
+     */
+    private static final long DESPAWN_MAX_TICKS = 6 * 60 * 20; // 6 minutes
     /** How often (in ticks) to refresh the current area from the tab list. */
     private static final int AREA_REFRESH_TICKS   = 40;
     /**
@@ -212,26 +218,32 @@ public class FishingManager {
     /** Ticks to let the bobber settle before drift-checking begins (1 second). */
     private static final int BOBBER_SETTLE_TICKS = 20;
 
+    /**
+     * One tracked sea creature, keyed on the <b>mob's</b> base entity id — the SkyHanni model
+     * (see {@code SeaCreatureDetectionApi}). We deliberately do <em>not</em> key on the floating
+     * name plate: Hypixel re-creates the plate entity on every HP change, so a plate-keyed tracker
+     * double-counts refreshes and mistakes plate churn for death. The mob entity id, by contrast,
+     * is stable for the creature's whole life, so "mob entity gone" is a reliable death signal.
+     */
     private static class TrackedSeaCreature {
-        int    entityId;
-        /**
-         * The actual creature beneath the name plate, resolved once when it's bound (-1 if we
-         * couldn't find it). We track the plate, but the glow has to apply to the mob itself.
-         */
-        int    mobId = -1;
+        /** Stable key: the base mob entity id (resolved from under the name plate at bind time). */
+        final int    mobId;
         final String name;
-        /** Tick at which this creature was first detected, for despawn-warning age checks. */
+        /** Tick at which this creature was first detected, for despawn-warning + max-age checks. */
         final long   spawnTick;
+        /** True when the catch chat line correlated this creature to our own catch (vs a passive
+         *  proximity add of someone else's creature). Kept for diagnostics/parity with SkyHanni. */
+        final boolean isOwn;
         /** True once the approaching-despawn alert has fired for this creature. */
         boolean      despawnAlertFired = false;
-        /** Last known XZ position — kept fresh by cleanupDeadCreatures while entity is visible.
-         *  Used to detect nameplate entity ID refreshes (same creature, new display entity). */
+        /** Last known XZ position — kept fresh by cleanupDeadCreatures while the mob is loaded. */
         double lastX, lastZ;
 
-        TrackedSeaCreature(int entityId, String name, long spawnTick, double x, double z) {
-            this.entityId  = entityId;
+        TrackedSeaCreature(int mobId, String name, long spawnTick, boolean isOwn, double x, double z) {
+            this.mobId     = mobId;
             this.name      = name;
             this.spawnTick = spawnTick;
+            this.isOwn     = isOwn;
             this.lastX     = x;
             this.lastZ     = z;
         }
@@ -709,39 +721,38 @@ public class FishingManager {
         double r = cfg.getCreatureScanRadius();
         AABB searchBox = new AABB(bx - r, by - 2, bz - r, bx + r, by + r + 6, bz + r);
 
-        // Build a fast lookup of already-tracked entity IDs.
-        java.util.Set<Integer> knownIds = new java.util.HashSet<>();
-        for (TrackedSeaCreature t : tracked) knownIds.add(t.entityId);
+        // Fast lookup of already-tracked MOB entity ids (the stable key). A plate refresh never
+        // adds a duplicate, because the mob under it is already tracked.
+        java.util.Set<Integer> knownMobs = new java.util.HashSet<>();
+        for (TrackedSeaCreature t : tracked) knownMobs.add(t.mobId);
 
-        // Collect eligible untracked plates, skipping nameplate refreshes of tracked creatures.
-        List<Entity> candidates = new ArrayList<>();
+        // Collect eligible plates near the bobber, each paired with the mob resolved beneath it.
+        // The plate only identifies the creature (name + sea-creature marker); the MOB is what we
+        // track — so a plate whose mob can't be resolved yet is skipped (the retry re-tries once
+        // the mob entity has loaded).
+        record Candidate(Entity mob, String name, double d2) {}
+        List<Candidate> candidates = new ArrayList<>();
         for (Entity entity : mc.level.getEntities(mc.player, searchBox)) {
-            if (knownIds.contains(entity.getId())) continue;
             if (!isSeaCreatureDisplay(entity)) continue;
-            String name = extractCreatureName(entity);
-            if (isNameplateRefresh(entity, name)) continue;
             if (targetName != null && !labelMatches(entity, targetName)) continue;
-            candidates.add(entity);
+            Entity mob = findMobUnderLabel(mc, entity);
+            if (mob == null) continue;                    // can't track a plate without its mob
+            if (knownMobs.contains(mob.getId())) continue; // already tracked (or a plate refresh)
+            double dx = mob.getX() - bx, dz = mob.getZ() - bz;
+            candidates.add(new Candidate(mob, extractCreatureName(entity), dx * dx + dz * dz));
         }
 
-        // Nearest to the bobber first, so a Double Hook binds the two closest matching plates.
-        candidates.sort(java.util.Comparator.comparingDouble(e -> {
-            double dx = e.getX() - bx, dz = e.getZ() - bz;
-            return dx * dx + dz * dz;
-        }));
+        // Nearest to the bobber first, so a Double Hook binds the two closest matching creatures.
+        candidates.sort(java.util.Comparator.comparingDouble(Candidate::d2));
 
         int added = 0;
-        for (Entity entity : candidates) {
+        for (Candidate c : candidates) {
             if (added >= count) break;
-            String name = extractCreatureName(entity);
-            TrackedSeaCreature t = new TrackedSeaCreature(entity.getId(), name,
-                    Scheduler.getCurrentTick(), entity.getX(), entity.getZ());
-            // Resolve the creature under the plate once, so the glow can target the mob itself.
-            Entity mob = findMobUnderLabel(mc, entity.position());
-            if (mob != null) t.mobId = mob.getId();
-            tracked.add(t);
+            if (!knownMobs.add(c.mob().getId())) continue; // guard against two plates over one mob
+            tracked.add(new TrackedSeaCreature(c.mob().getId(), c.name(),
+                    Scheduler.getCurrentTick(), targetName != null, c.mob().getX(), c.mob().getZ()));
             PoseidonLogger.getInstance().logInfo(
-                    "Tracking: " + name + " (id=" + entity.getId() + ") -- total: " + tracked.size());
+                    "Tracking: " + c.name() + " (mob=" + c.mob().getId() + ") -- total: " + tracked.size());
             checkCapAlert();
             added++;
         }
@@ -754,7 +765,7 @@ public class FishingManager {
      * latches), so a single shot would silently miss when catches come in fast and the nameplate entity
      * lags a few ticks behind the chat line — exactly the "two catches within a second, count ends up off"
      * case. We re-scan every {@link #SCAN_RETRY_INTERVAL} ticks until the target(s) bind or attempts run
-     * out; {@code knownIds}/the remaining count keep it from ever over-adding.
+     * out; the already-tracked mob ids and the remaining count keep it from ever over-adding.
      */
     private void scanForCatchWithRetry(double bx, double by, double bz, String target,
                                        int remaining, int attemptsLeft) {
@@ -765,40 +776,75 @@ public class FishingManager {
                 scanForCatchWithRetry(bx, by, bz, target, rem, attemptsLeft - 1));
     }
 
+    /** How many entity ids back from a name plate to look for its mob (equipment/extra stands can sit between). */
+    private static final int ID_ADJACENCY_SPAN = 4;
+
     /**
-     * Hypixel sometimes refreshes a sea creature's nameplate display entity (e.g. when its HP
-     * bar updates), giving it a new entity ID while the creature itself hasn't moved. If
-     * {@code entity} is such a refresh of an already-tracked creature (same name, within 3
-     * blocks), this updates the stored ID in place and returns true so the caller skips it
-     * rather than counting it as a fresh catch.
+     * Resolves the sea creature mob beneath a name plate — the entity we key tracking on.
+     *
+     * <p><b>Primary: entity-id adjacency</b> — SkyHanni's method ({@code MobUtils.getNextEntity}).
+     * Hypixel spawns a mob and its floating name plate consecutively, so the plate's entity id is the
+     * mob's id plus a small offset; walking back from the plate id to the first valid mob gives a
+     * solid 1:1 plate→mob link that <b>does not depend on position</b>. This is the key fix for the
+     * stacked case — player, bobber and several creatures all on the same spot — where a nearest-below
+     * search collapses every plate onto the one closest mob and silently under-counts. A loose distance
+     * sanity check rejects a coincidental id-neighbour that isn't really this plate's mob.</p>
+     *
+     * <p><b>Fallback: nearest below</b> — the old spatial search, used only when adjacency finds
+     * nothing (an unusual spawn ordering). Returns {@code null} if neither resolves a mob.</p>
      */
-    /**
-     * Finds the actual sea creature beneath a name plate. We track the plate (an armour stand /
-     * text display), but the glow must apply to the mob, so this resolves it the same way ESP
-     * does: the nearest living, non-plate entity within a few blocks horizontally that sits 0–6
-     * blocks below the label. Returns {@code null} if nothing matches.
-     */
-    private static Entity findMobUnderLabel(Minecraft mc, Vec3 labelPos) {
+    private static Entity findMobUnderLabel(Minecraft mc, Entity plate) {
         if (mc.level == null) return null;
+        Vec3 labelPos = plate.position();
+
+        // Primary: id adjacency (plate id = mob id + small offset ⇒ mob id = plate id - k).
+        int pid = plate.getId();
+        for (int k = 1; k <= ID_ADJACENCY_SPAN; k++) {
+            Entity e = mc.level.getEntity(pid - k);
+            if (isTrackableMob(e) && nearLabel(e, labelPos)) return e;
+        }
+
+        // Fallback: nearest living, non-plate entity 0–6 blocks below the label.
         final double r = 4.0;
         AABB box = new AABB(labelPos.x - r, labelPos.y - 7, labelPos.z - r,
                             labelPos.x + r, labelPos.y + 1, labelPos.z + r);
-
         Entity closest = null;
         double best = Double.MAX_VALUE;
         for (Entity e : mc.level.getEntities(mc.player, box)) {
-            if (!(e instanceof LivingEntity)) continue;
-            if (e instanceof ArmorStand) continue;
-            if (e instanceof net.minecraft.world.entity.Display) continue;
-
+            if (!isTrackableMob(e)) continue;
             double dy = labelPos.y - e.getY(); // positive = label above the mob
             if (dy < 0.0 || dy > 6.0) continue;
-
             double dx = labelPos.x - e.getX(), dz = labelPos.z - e.getZ();
             double d2 = dx * dx + dz * dz;
             if (d2 < r * r && d2 < best) { best = d2; closest = e; }
         }
         return closest;
+    }
+
+    /**
+     * A living entity trackable as a sea creature: not a name plate (armour stand / display) and not
+     * a <em>real</em> player. Crucially we do <b>not</b> exclude player entities wholesale — several
+     * sea creatures (e.g. Banshee) are rendered with a player model, so they arrive as Player entities.
+     * SkyHanni's {@code isSkyBlockMob} keeps those and rejects only real players, told apart by UUID
+     * version: Mojang accounts get random v4 UUIDs; Hypixel's mob-players get non-v4 ones.
+     */
+    private static boolean isTrackableMob(Entity e) {
+        return e instanceof LivingEntity
+                && !(e instanceof ArmorStand)
+                && !(e instanceof net.minecraft.world.entity.Display)
+                && !isRealPlayer(e);
+    }
+
+    /** True for a genuine player account (random v4 UUID) — as opposed to a Hypixel player-model mob/NPC. */
+    private static boolean isRealPlayer(Entity e) {
+        return e instanceof net.minecraft.world.entity.player.Player
+                && e.getUUID().version() == 4;
+    }
+
+    /** Loose check that a candidate mob really sits under a label — rejects false id-neighbours. */
+    private static boolean nearLabel(Entity mob, Vec3 labelPos) {
+        double dx = labelPos.x - mob.getX(), dz = labelPos.z - mob.getZ(), dy = labelPos.y - mob.getY();
+        return dx * dx + dz * dz <= 9.0 && dy >= -1.0 && dy <= 8.0; // ≤3 blocks horiz, plate above mob
     }
 
     // ── Sea creature glow (read by the glow mixins on the render thread) ───────
@@ -815,9 +861,7 @@ public class FishingManager {
         }
         int color = cfg.getSeaCreatureHighlightColor();
         Map<Integer, Integer> map = new HashMap<>();
-        for (TrackedSeaCreature t : tracked) {
-            if (t.mobId >= 0) map.put(t.mobId, color);
-        }
+        for (TrackedSeaCreature t : tracked) map.put(t.mobId, color);
         glowingMobs = map;
     }
 
@@ -845,21 +889,6 @@ public class FishingManager {
         String norm = SeaCreatureCatches.normalized(rawLabelText(entity));
         return !norm.isEmpty()
                 && norm.contains(targetName.toLowerCase(java.util.Locale.ROOT));
-    }
-
-    private boolean isNameplateRefresh(Entity entity, String name) {
-        if (name == null || name.isEmpty()) return false;
-        for (TrackedSeaCreature t : tracked) {
-            if (t.name.equals(name)) {
-                double dx = entity.getX() - t.lastX;
-                double dz = entity.getZ() - t.lastZ;
-                if (dx * dx + dz * dz < 9.0) { // within 3 blocks
-                    t.entityId = entity.getId();
-                    return true;
-                }
-            }
-        }
-        return false;
     }
 
     /**
@@ -1007,11 +1036,15 @@ public class FishingManager {
 
         int before = tracked.size();
         tracked.removeIf(t -> {
-            Entity e = mc.level.getEntity(t.entityId);
+            // Death signal: the MOB entity has left the world. Because we key on the mob's stable id
+            // (not the churning name plate), this fires exactly once, when the creature actually dies
+            // or despawns — no plate-refresh false positives. The max-age is only a far-back safety
+            // net for a mob that unloaded without a visible despawn.
+            Entity e = mc.level.getEntity(t.mobId);
             if (e != null) {
-                t.lastX = e.getX(); // keep position fresh while creature is visible
+                t.lastX = e.getX(); // keep position fresh while the mob is loaded
                 t.lastZ = e.getZ();
-                return false;
+                return (now - t.spawnTick) >= DESPAWN_MAX_TICKS;
             }
             return true;
         });

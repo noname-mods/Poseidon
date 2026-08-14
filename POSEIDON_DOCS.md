@@ -1,6 +1,6 @@
 # Poseidon — Design & Documentation
 
-**Version:** 1.2.0 (config schema v13)
+**Version:** 1.2.0 (config schema v18)
 **Platform:** Fabric 26.1.2, Java 21
 **Dependencies:** PlayerAPI, Fabric API, YACL v3, ModMenu (optional)
 **Mod ID:** `poseidon`
@@ -33,6 +33,8 @@
 19. [Configuration Reference (All Settings)](#19-configuration-reference-all-settings)
 20. [Timing Reference](#20-timing-reference)
 21. [Design Decisions & Notes](#21-design-decisions--notes)
+22. [Fishing Abilities (Fire Veil / Totem)](#22-fishing-abilities-fire-veil--totem)
+23. [Bobber "Not in Water" Recovery](#23-bobber-not-in-water-recovery)
 
 ---
 
@@ -609,45 +611,80 @@ If a trigger fires **after** the decision window closes, the flags are ignored. 
 
 ### Overview
 
-After each reel-in, Poseidon scans for entities near the bobber position bearing the resource pack's sea-creature type glyph — water = Aquatic (`U+E072`), lava = Magmatic (`U+E07D`). These are the prefixes Hypixel's mandatory pack uses on sea creature name plates. New creatures are added to a `List<TrackedSeaCreature>` with their entity ID, name, and spawn tick.
+Poseidon identifies **which** creature was caught from the catch chat line, then tracks the **mob** it
+spawned — keyed on the mob's stable entity id. This is the model SkyHanni's `SeaCreatureDetectionApi`
+uses; Poseidon adopted it after a name-plate-keyed tracker proved unreliable (Hypixel recreates the
+floating plate on every HP change, so a plate-keyed tracker double-counts refreshes and mistakes plate
+churn for death). The plate is used only to *identify* a creature; the mob beneath it is what's counted.
 
-### Detection Mechanism
+### Identification (chat line)
 
-The markers are centralised in `FishingManager.SEA_CREATURE_MARKERS` (the Aquatic / Magmatic glyphs); `matchedMarker(text)` returns the first one found (or `null`).
+`SeaCreatureCatches` maps a catch chat line → creature name (bundled `sea_creature_catches.json`, 81
+creatures, with an optional live-editable debug override). It also detects the standalone
+`It's a Double Hook!` line. On a reel-in a catch window opens; `handleCatchMessage(message)` identifies
+the creature (and whether a Double Hook is pending → bind two) and schedules the mob bind. Unknown/blank
+lines leave the window open for a positional fallback scan.
 
-`isSeaCreatureDisplay(Entity entity)`:
-- Checks `matchedMarker(entity.getCustomName().getString())` for armor stands / mob name plates
-- Checks `matchedMarker(TextDisplayEntity.getText().getString())` for text display entities
+### Plate → mob resolution (the key robustness fix)
 
-`extractCreatureName(Entity entity)`:
-- Reads raw entity text
-- Finds the matched type glyph, takes everything after it (trimmed) — `marker.length()` handles the multi-char PUA glyph correctly
-- Strips from the first digit onward (start of the HP value)
-- Returns the resulting name, or `"Unknown"` if parsing fails
-- Full format Hypixel uses: `"[LvN] <type-glyph> CreatureName HP/MaxHP❤"`
+The floating plate is detected by its resource-pack type glyph — water = Aquatic (`U+E072`), lava =
+Magmatic (`U+E07D`) — via `isSeaCreatureDisplay` / `matchedMarker`, and its creature name parsed by
+`extractCreatureName` (format `"[LvN] <glyph> CreatureName HP/MaxHP❤"`). Each plate is then mapped to
+its mob by `findMobUnderLabel(mc, plate)`:
 
-### Scan Timing
+1. **Primary — entity-id adjacency** (SkyHanni's `MobUtils.getNextEntity`): Hypixel spawns a mob and its
+   plate consecutively, so `mob id = plate id − k`. Walking back `ID_ADJACENCY_SPAN = 4` ids to the first
+   valid mob gives a solid 1:1 link that **does not depend on position** — the fix for the stacked case
+   (player, bobber and several creatures on one spot), where a nearest-below search collapses every plate
+   onto the one closest mob and under-counts. `nearLabel` is a loose sanity check rejecting a coincidental
+   id-neighbour.
+2. **Fallback — nearest below**: the old spatial search (nearest living non-plate entity 0–6 blocks below
+   the label), used only if adjacency finds nothing.
 
-The scan runs `SCAN_DELAY_TICKS = 5` ticks after the reel-in. This delay is intentional: the bobber entity typically despawns within 1–2 ticks of the `use` key press. Anchoring the scan to the saved `lastBobberX/Y/Z` position rather than the current bobber position (which may be gone) ensures the scan always runs at the right place.
+`isTrackableMob` accepts any `LivingEntity` that is **not** an armour stand, a `Display`, or a *real*
+player. Player entities are **not** excluded wholesale: several creatures (e.g. Banshee) are rendered
+with a player model and arrive as player entities. Only genuine players are rejected, told apart by
+UUID version (`isRealPlayer` = `uuid.version() == 4`), matching SkyHanni's `isSkyBlockMob`.
 
-### Cleanup
+### Bind + retry
 
-`cleanupDeadCreatures(MinecraftClient mc)` runs every `CLEANUP_PERIOD_TICKS = 40` ticks (2 seconds):
-1. **Despawn warnings**: If `despawnWarningEnabled`, checks each tracked creature's age. If `(currentTick - spawnTick) >= despawnWarningTicks`, and the alert hasn't fired yet, plays `despawnWarningSound` and logs a warning.
-2. **Dead removal**: `tracked.removeIf(t -> mc.world.getEntityById(t.entityId) == null)` — removes any creature whose entity is no longer in the world.
-3. **Cap reset**: If the tracked count falls below the cap after removal, resets `capAlertFired = false` so the alert can fire again next time.
+`handleCatchMessage` schedules `scanForCatchWithRetry` at `SCAN_DELAY_TICKS = 5`, re-scanning every
+`SCAN_RETRY_INTERVAL = 5` ticks up to `SCAN_MAX_ATTEMPTS = 6` until the target(s) bind — this covers a
+plate/mob that spawns a few ticks after the chat line (fast back-to-back catches). Dedup is on **mob id**;
+the remaining count caps additions, so it never over-adds. If no known line matched by
+`FALLBACK_SCAN_DELAY_TICKS = 30`, a positional fallback scan (`targetName == null`) covers unlisted
+creatures. Scans anchor to the saved `catchBobberX/Y/Z` (the bobber despawns within 1–2 ticks of reel-in).
+
+### Cleanup / death
+
+`cleanupDeadCreatures(mc)` runs every `CLEANUP_PERIOD_TICKS = 40` ticks:
+1. **Despawn warnings**: if `despawnWarningEnabled` and `(now - spawnTick) >= despawnWarningTicks`, plays
+   `despawnWarningSound` once per creature.
+2. **Death removal**: a creature is removed when its **mob** entity has left the world
+   (`mc.level.getEntity(t.mobId) == null`) — the reliable death signal, since the mob id is stable — or
+   when its age reaches `DESPAWN_MAX_TICKS` (6 min, a far-back safety net for a mob that unloaded unseen).
+3. **Cap reset**: if the count falls below the cap after removal, clears `capAlertFired`.
 
 ### Cap Alert
 
-`checkCapAlert()` is called after each scan finds new creatures. If `tracked.size() >= cap` and `!capAlertFired`, plays `seaCreatureCapSound` and sets `capAlertFired = true`. The cap used is `cfg.getCapForArea(currentArea)`.
+`checkCapAlert()` runs after each bind. If `tracked.size() >= SEA_CREATURE_CAP` (flat `10`) and
+`!capAlertFired`, plays `seaCreatureCapSound` and latches `capAlertFired`.
+
+### Glow
+
+`updateGlow()` rebuilds a `mobId → colour` map each tick from the tracked list (when
+`highlightSeaCreatures` is on); the glow mixins read it on the render thread. Because tracking is keyed on
+the mob, the glow applies directly to the creature.
 
 ### TrackedSeaCreature (inner class)
 
 ```java
-final int     entityId         // MC entity ID for alive-check
+final int     mobId            // STABLE key — the base mob entity id (resolved from under the plate)
 final String  name             // extracted display name
 final long    spawnTick        // Scheduler.getCurrentTick() at detection time
+final boolean isOwn            // chat-correlated to our catch vs a passive proximity add
 boolean       despawnAlertFired // prevents duplicate despawn warnings
+double        lastX, lastZ     // refreshed while the mob is loaded
 ```
 
 ---
@@ -740,15 +777,27 @@ The config file includes a `configVersion` integer. On load, the `migrate()` met
 ### Migration Chain
 
 ```
-v0 → v1: flat biteAlert* fields → biteAlertSound AlarmSound object; triggerLevels added
-v1 → v2: single seaCreatureCap int → seaCreatureCapByArea Map (all areas get the old cap value)
-v2 → v3: autoRecast added (GSON defaults bool to false; migration injects true for old configs)
-v3 → v4: recastDecisionTicks added (was hardcoded 40 in old code, default now 10)
-v4 → v5: despawnWarningEnabled, despawnWarningMinutes added
-v5 → v6: hookStuckDetectionEnabled, hookStuckMaxDistance added
+v0  → v1:  flat biteAlert* fields → biteAlertSound AlarmSound object; triggerLevels added
+v1  → v2:  single seaCreatureCap int → seaCreatureCapByArea Map (all areas get the old cap value)
+v2  → v3:  autoRecast added (GSON defaults bool to false; migration injects true for old configs)
+v3  → v4:  recastDecisionTicks added (was hardcoded 40 in old code, default now 10)
+v4  → v5:  despawnWarningEnabled, despawnWarningMinutes added
+v5  → v6:  hookStuckDetectionEnabled, hookStuckMaxDistance added
+v6  → v7:  updateCheckEnabled added (default true)
+v7  → v8:  seaCreatureCapByArea removed → flat SEA_CREATURE_CAP for all islands
+v8  → v9:  bait monitoring (baitHudVisible, baitLowThreshold)
+v9  → v10: rebootAlertEnabled + fishingStatsHudVisible
+v10 → v11: hookStuckAutoRecast (default true)
+v11 → v12: slugfishMode / slugPet (both default false)
+v12 → v13: Golden Fish alert (goldenFishAlertEnabled + phrase/title defaults)
+v13 → v14: HUD editor layout (hudX/hudY/hudScale — hudScale must never be GSON's 0.0)
+v14 → v15: per-stat fishing-HUD toggles (statSpeed/Dhc/Scc/TreasureHudVisible, default true)
+v15 → v16: log split into its own HUD element (logVisible, logHudX/Y/Scale)
+v16 → v17: "not in water" recovery (notInWaterRecastEnabled, default true)
+v17 → v18: fishing-ability action speed (abilityActionDelayMs, default 400)
 ```
 
-**GSON boolean default caveat:** GSON creates objects by bypassing constructors. Any new boolean field added to `FishingConfig` that should default to `true` must be injected in the migration step, not just added as a Java field initializer, because GSON will produce `false` for a missing field. Poseidon handles this correctly via migrations (v2→v3 for `autoRecast`, v4→v5 for `despawnWarningEnabled`, v5→v6 for `hookStuckDetectionEnabled`).
+**GSON boolean default caveat:** GSON creates objects by bypassing constructors. Any new boolean field added to `FishingConfig` that should default to `true` must be injected in the migration step, not just added as a Java field initializer, because GSON will produce `false` for a missing field. Poseidon handles this correctly via migrations (e.g. v2→v3 `autoRecast`, v9→v10 `rebootAlertEnabled`, v16→v17 `notInWaterRecastEnabled`). Non-zero-default ints (e.g. `abilityActionDelayMs = 400` in v17→v18) need the same treatment.
 
 ### KNOWN_AREAS Static Init Order
 
@@ -953,3 +1002,75 @@ The `seaCreatureCapByArea` map uses the area string exactly as read from the Hyp
 ### Thread Safety
 
 `PoseidonLogger.recentLines` is synchronized because `getRecentLines()` is called from the render thread while `log()` is called from the game thread. All other state (`FishingManager`, `FishingConfig`) is only touched on the main client thread (via `TICK` event and `Scheduler` callbacks), so no synchronization is needed there.
+
+---
+
+## 22. Fishing Abilities (Fire Veil / Totem)
+
+`AbilityManager` auto-uses hotbar "ability" items after a catch so the bot can fish for longer stretches:
+the **Fire Veil** wand (AoE that instant-kills low-rarity sea creatures) and the **Totem of Corruption**
+(a placed banner that corrupts sea creatures). Both are infinite-use, mana-cost items on a cooldown.
+
+### Modes
+
+Each ability (`Ability.TOTEM`, `Ability.FIRE_VEIL`) has an `AbilityConfig` with a mode:
+
+| Mode | Fires |
+|------|-------|
+| `OFF` | never |
+| `CONSTANT` | after every catch, whenever its own cooldown has elapsed |
+| `AT_CAP` | only when the tracked sea-creature count has reached `SEA_CREATURE_CAP` |
+
+Both can be enabled at once; when both are due on the same catch the **Totem fires first, then Fire Veil**,
+and the bot switches back to the rod only once at the end.
+
+### Trigger point & at-cap timing
+
+Abilities run in the recast-decision callback after a **real** reel-in (not when the bobber vanished
+pre-reel). When an at-cap ability is enabled, the run waits ~8 ticks first so the delayed sea-creature
+scan has settled the count — this makes the at-cap ability fire on the catch that *actually reaches* the
+cap, before the next cast, rather than a cycle late. `hasAtCapAbilityEnabled()` gates that wait.
+
+### Sequence & pacing
+
+For each due ability the manager schedules: switch to its slot → use → … then a single switch back to the
+rod, then the recast. Step spacing scales from the **Action Speed** config (`abilityActionDelayMs`,
+100–1000 ms, default 400):
+
+- `switchDelay = max(2, delay/50) + 0–2t jitter`
+- `useDelay = max(2, delay/100) + 0–1t jitter`
+- **Use goes through the use *key*, not `useItem()`.** `pressUse()` taps the use key
+  (`MovementActions.tapKey("use", …)`), which runs the client's full vanilla right-click routing
+  (`startUseItem` → `useItemOn` when the crosshair is on a block, else `useItem`). This is required for a
+  **placed** ability like the Totem of Corruption — a direct `InteractionActions.useItem()` only does the
+  use-in-air path and never places, which is why the Totem previously did nothing. Wands like Fire Veil
+  cast fine either way.
+
+The camera is never moved — Fire Veil needs no aim and the Totem is placed wherever the player already
+looks. Casting only happens after a catch (no bobber out), so switching slots is safe.
+
+### Safety & HUD
+
+`slotHasItem` checks the configured slot (1–8) actually holds the ability's item (substring match on the
+display name) before firing, so a mis-set slot never triggers. `isReady` enforces the per-ability
+cooldown. The HUD shows an on/cooldown status row via `activeSecondsLeft` / `cooldownSecondsLeft`.
+
+---
+
+## 23. Bobber "Not in Water" Recovery
+
+Recovers from a cast that lands on ice, a lily pad, or the water's edge — where the bobber sits but never
+bites. `ParticleCaptureMixin` (on `ParticleEngine.createParticle`, `require = 0`) feeds `ParticleWatch`, a
+ring buffer of `(type, pos, tick)`. Each tick in `WAITING`, `checkNotInWater` counts matching particles
+near the settled bobber:
+
+- **Match set:** `NOT_IN_WATER_PARTICLES` = `minecraft:dust` — the blue coloured-redstone-dust burst
+  Hypixel spawns for a not-in-water bobber (confirmed by live capture). Normal in-water fishing particles
+  are deliberately excluded so healthy fishing never false-triggers.
+- **Trigger:** ≥ `NOT_IN_WATER_MIN_HITS` (8) matches within `NOT_IN_WATER_RADIUS` (1.6 blocks) over the
+  last `NOT_IN_WATER_WINDOW_TICKS` (20) ticks → force-reel + recast.
+- **Guards:** waits `NOT_IN_WATER_SETTLE_TICKS` (30) after the bobber lands (so the cast's own splash is
+  ignored) and enforces a `NOT_IN_WATER_COOLDOWN_TICKS` (60) gap between forced recasts.
+
+Config: `notInWaterRecastEnabled` (default true) and `logBobberParticles` (Developer; logs observed
+particle types at WARN, for confirming the id set on a future Hypixel change).

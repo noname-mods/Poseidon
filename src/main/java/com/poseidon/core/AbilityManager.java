@@ -1,8 +1,8 @@
 package com.poseidon.core;
 
-import com.playerapi.InteractionActions;
 import com.playerapi.InventoryActions;
 import com.playerapi.InventoryInfo;
+import com.playerapi.MovementActions;
 import com.playerapi.Scheduler;
 import com.poseidon.core.FishingConfig.AbilityConfig;
 import com.poseidon.core.FishingConfig.AbilityMode;
@@ -70,8 +70,20 @@ public final class AbilityManager {
     private static int useDelay(FishingConfig cfg) {
         return Math.max(2, cfg.getAbilityActionDelayMs() / 100) + (int) (Math.random() * 2);
     }
-    /** Ticks between the Totem's first and second use (see the double-use note in runDueAbilities). */
-    private static final int TOTEM_RECLICK_TICKS = 10; // ~0.5s
+    /** How long the synthesized use-key press is held (ms). Short — one right-click edge. */
+    private static final int USE_TAP_MS = 100;
+
+    /**
+     * Right-clicks the held item by tapping the <b>use key</b>, not by calling {@code useItem()} directly.
+     * This matters: pressing the use key runs the client's full vanilla right-click routing
+     * ({@code startUseItem} → {@code useItemOn} when the crosshair is on a block, else {@code useItem}),
+     * so a <b>placed</b> ability like the Totem of Corruption actually places. A direct
+     * {@code InteractionActions.useItem()} only ever does the use-in-air path, which places nothing —
+     * that's why the Totem silently failed. Wands like Fire Veil cast fine either way.
+     */
+    private static void pressUse() {
+        MovementActions.tapKey("use", USE_TAP_MS);
+    }
 
     private static AbilityConfig cfgFor(Ability a, FishingConfig cfg) {
         return a == Ability.TOTEM ? cfg.getTotem() : cfg.getFireVeil();
@@ -128,18 +140,11 @@ public final class AbilityManager {
             t += switchDelay(cfg);
             final int useTime = t;
             Scheduler.schedule(useTime, () -> {
-                InteractionActions.useItem();
+                pressUse();
                 lastCastTick[fa.ordinal()] = Scheduler.getCurrentTick();
                 PoseidonLogger.getInstance().logInfo("Ability used: " + fa.label);
             });
             t += useDelay(cfg);
-            // The Totem sometimes doesn't register on a single use (placement/timing) — click it again
-            // ~0.5s after the first, which reliably fixes the "totem didn't activate" case.
-            if (fa == Ability.TOTEM) {
-                int second = useTime + TOTEM_RECLICK_TICKS;
-                Scheduler.schedule(second, InteractionActions::useItem);
-                t = Math.max(t, second + useDelay(cfg));
-            }
         }
 
         // Switch back to the rod once (not between abilities), then let the caller recast.

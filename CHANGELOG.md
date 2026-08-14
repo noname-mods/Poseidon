@@ -7,14 +7,20 @@
 ## [1.2.0] — In development (beta, not yet released)
 
 ### Added
-- **Chat-confirmed sea-creature detection.** Identifies the exact creature from its catch chat line
-  (bundled registry of 81 creatures + an optional live-editable debug JSON), and binds the matching
-  name plate instead of guessing by proximity. Handles **Double Hook** (tracks two); unknown/blank
-  lines fall back to the old positional scan.
+- **Chat-confirmed, mob-anchored sea-creature detection.** Identifies the exact creature from its catch
+  chat line (bundled registry of 81 creatures + an optional live-editable debug JSON), then tracks the
+  underlying **mob** — not the floating name plate — keyed on the mob's stable entity id (the model
+  SkyHanni uses). The plate only identifies the creature; the mob beneath it is resolved by
+  **entity-id adjacency** (Hypixel spawns a mob and its plate consecutively), which is immune to the
+  common stacked case where player, bobber and several creatures sit on one spot. Handles **Double
+  Hook** (tracks two); unknown/blank lines fall back to a positional scan. Death is detected when the
+  mob entity leaves the world, with a 6-minute max-age safety net.
 - **Fishing abilities.** Auto-use **Fire Veil** and **Totem of Corruption** after catches — Constant
   or At-Cap modes, configurable hotbar slot (1–8) and cooldown, a name-check safety, and a HUD
-  status row. Replaces the previously-planned generic per-trigger `action` field (dropped as too
-  limited).
+  status row. An **Action Speed** slider (100–1000 ms/step, default 400) paces the switch→use→
+  switch-back sequence at a human speed. Uses fire via the **use key** (the game's real right-click
+  routing), so placed items like the Totem place correctly rather than no-opping. Replaces the
+  previously-planned generic per-trigger `action` field (dropped as too limited).
 - **6 new sea creatures** — Haggard, Brineling, Sprawl, Torrid, Silkbreeze, and Giant Isopod added to
   the catch-line registry.
 - **"Bobber not in water" auto-recast.** Watches for the blue "not in water" particle burst around a
@@ -30,11 +36,29 @@
   SkyBlock internal id instead of display-name substrings (which Hypixel renames). Requires PlayerAPI 1.18.0+.
 
 ### Fixed
+- **Stacked-creature undercount.** When the player, bobber and several creatures overlapped on one spot,
+  every name plate resolved to the single nearest mob and the rest were dropped from the count. Resolving
+  plate→mob by entity-id adjacency (rather than "nearest below") now gives each creature its own mob, so
+  the count is correct even when everything is piled together.
+- **Player-model creatures (e.g. Banshee) not tracked.** Creatures rendered with a player model arrive as
+  player entities and were being skipped. They're now tracked; only *real* players (identified by a v4
+  UUID, per SkyHanni) are excluded.
+- **Count drift over long sessions.** Tracking the churning name-plate entity (which Hypixel recreates on
+  every HP change) caused double-counts and phantom deaths. Keying on the stable mob entity removes both.
+- **At-cap ability timing.** An at-cap ability fired a cast late; it now waits for the catch count to
+  settle so it triggers on the catch that actually reaches the cap, before the next cast.
+- **Totem not activating.** The Totem of Corruption is a *placed* item, so it needs the block-placement
+  right-click (`useItemOn`), not use-in-air. Abilities now fire by tapping the **use key** — the client's
+  full vanilla right-click routing — so the Totem places correctly. Fire Veil is unaffected (a wand casts
+  in air either way).
 - **Fast-catch miss.** Back-to-back catches (<1s apart) could miss the second creature when its name plate
   spawned a hair late; the catch scan now retries for a few ticks until the target(s) bind.
 - **Double Hook line.** Hypixel sends the double hook as its own `It's a Double Hook!` line before the
   catch line — it's now parsed there (formatting stripped) and applied to the following catch.
 - **Keybind category label.** The Controls-menu category showed a raw translation key; corrected.
+- **Cross-mod build against a newer PlayerAPI.** The PlayerAPI dependency is now a version *range*
+  (`[floor,)`) instead of an exact pin, so a fresh clone builds against whatever PlayerAPI is published
+  to mavenLocal rather than demanding one exact version.
 
 ---
 
@@ -160,7 +184,7 @@
 ### Changed
 - `shouldBlockRightClick()` no longer returns `true` when a GUI screen is open.
 - Bait detection moved from every-tick to cast-time only (IDLE → WAITING transition and after each auto-recast), reducing unnecessary inventory reads.
-- Config schema bumped from v6 to v13 (automatic migration on first launch).
+- Config schema bumped from v6 to v18 (automatic migration on first launch).
 - Update checker moved to PlayerAPI's shared `UpdateChecker`: adds a click-to-hide link and a distinct
   message when the latest release targets a different Minecraft version (tags use `<modVersion>+<mcVersion>`).
 
