@@ -21,7 +21,7 @@
     "minecraft": "~26.1",
     "java": ">=25",
     "fabric-api": "*",
-    "playerapi": ">=1.12.0",
+    "playerapi": ">=1.18.0",
     "yet_another_config_lib_v3": "*"
   },
   "suggests": {

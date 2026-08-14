@@ -4,6 +4,40 @@
 
 ---
 
+## [1.2.0] — In development (beta, not yet released)
+
+### Added
+- **Chat-confirmed sea-creature detection.** Identifies the exact creature from its catch chat line
+  (bundled registry of 81 creatures + an optional live-editable debug JSON), and binds the matching
+  name plate instead of guessing by proximity. Handles **Double Hook** (tracks two); unknown/blank
+  lines fall back to the old positional scan.
+- **Fishing abilities.** Auto-use **Fire Veil** and **Totem of Corruption** after catches — Constant
+  or At-Cap modes, configurable hotbar slot (1–8) and cooldown, a name-check safety, and a HUD
+  status row. Replaces the previously-planned generic per-trigger `action` field (dropped as too
+  limited).
+- **6 new sea creatures** — Haggard, Brineling, Sprawl, Torrid, Silkbreeze, and Giant Isopod added to
+  the catch-line registry.
+- **"Bobber not in water" auto-recast.** Watches for the blue "not in water" particle burst around a
+  settled bobber and force-reels + recasts (on by default) — recovers from a cast that lands on ice, a
+  lily pad, or the water's edge.
+- **HUD editor + split log.** The HUD panel and its log are movable/scalable via PlayerAPI's shared HUD
+  editor (an **Edit HUD** button; the log is its own element with a **Show Log** toggle).
+- **Per-stat fishing-HUD toggles.** Double Hook Chance / Sea Creature Chance / Speed / Treasure each get
+  their own show/hide toggle; a line renders only when its toggle is on **and** the stat is in the tab list.
+
+### Changed
+- **Rod & bait detection now uses the SkyBlock item id.** Rod and bait identity read the item's stable
+  SkyBlock internal id instead of display-name substrings (which Hypixel renames). Requires PlayerAPI 1.18.0+.
+
+### Fixed
+- **Fast-catch miss.** Back-to-back catches (<1s apart) could miss the second creature when its name plate
+  spawned a hair late; the catch scan now retries for a few ticks until the target(s) bind.
+- **Double Hook line.** Hypixel sends the double hook as its own `It's a Double Hook!` line before the
+  catch line — it's now parsed there (formatting stripped) and applied to the following catch.
+- **Keybind category label.** The Controls-menu category showed a raw translation key; corrected.
+
+---
+
 ## [1.1.2] - 2026-07-08
 
 ### Changed
@@ -11,16 +45,6 @@
   mandatory, so the temporary dual-support from 1.1.1 is gone. Sea-creature detection now keys only
   on the pack's water (Aquatic) / lava (Magmatic) type glyphs, and treasure catch detection only on
   the pack's treasure glyph. The old ⚓ / ♆ / ⛃ symbols are no longer matched.
-
----
-
-## [1.2.0] — Coming Soon
-
-### Planned
-- **Improved sea creature detection** — uses the fish-up chat message to identify which creature
-  is yours more accurately, reducing false positives from nearby players' catches.
-- **Action implementation** — the reserved `action` field on chat triggers will be wired up,
-  enabling per-trigger behaviours beyond the current sound / title / stop-bot options.
 
 ---
 

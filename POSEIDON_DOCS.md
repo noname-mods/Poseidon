@@ -1,6 +1,6 @@
 # Poseidon — Design & Documentation
 
-**Version:** 1.1.2 (config schema v13)
+**Version:** 1.2.0 (config schema v13)
 **Platform:** Fabric 26.1.2, Java 21
 **Dependencies:** PlayerAPI, Fabric API, YACL v3, ModMenu (optional)
 **Mod ID:** `poseidon`

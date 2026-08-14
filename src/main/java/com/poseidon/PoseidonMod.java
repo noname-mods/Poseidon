@@ -4,6 +4,7 @@ import com.poseidon.core.FishingConfig;
 import com.poseidon.core.FishingManager;
 import com.poseidon.core.PoseidonLogger;
 import com.poseidon.core.RebootAlertManager;
+import com.poseidon.core.SeaCreatureCatches;
 import com.poseidon.gui.PoseidonConfigScreen;
 import com.poseidon.gui.PoseidonHudRenderer;
 import com.playerapi.PlayerAPIEvents;
@@ -64,9 +65,11 @@ public class PoseidonMod implements ClientModInitializer {
         PoseidonLogger.getInstance().logInfo("Poseidon initialising...");
 
         FishingConfig.getInstance().load();
+        SeaCreatureCatches.getInstance().init(FishingConfig.getInstance().isCatchRegistryDebugJson());
 
         registerKeybinds();
         registerCommands();
+        PoseidonHudRenderer.register(); // register the HUD panel with the shared editor
         HudElementRegistry.addLast(
                 Identifier.fromNamespaceAndPath("poseidon", "hud"),
                 PoseidonHudRenderer::render);
@@ -152,6 +155,12 @@ public class PoseidonMod implements ClientModInitializer {
         //    §e (yellow/gold) = special announcements e.g. "§e§lDOUBLE HOOK!".
         //    §X⛃ (any colour + treasure icon) = treasure catches.
         //    Death notices (§c), player chat, and other server messages are rejected.
+        // Chat-confirmed sea-creature tracking. Runs on EVERY in-window server message, before the
+        // trigger colour gate below: the sea-creature catch line's prefix/colour isn't guaranteed
+        // to satisfy that gate, and it can carry pack glyphs. It only acts when the message
+        // actually contains a known catch line, so it's safe to feed it everything.
+        FishingManager.getInstance().handleCatchMessage(message);
+
         if (!isCatchMessage(message)) return;
 
         List<FishingConfig.TriggerLevel> levels = FishingConfig.getInstance().getTriggerLevels();
@@ -345,6 +354,10 @@ public class PoseidonMod implements ClientModInitializer {
     // ── Update checker ────────────────────────────────────────────────────────
 
     private void onWorldJoin() {
+        // Pick up any live edits to the debug catch-registry JSON on each world join.
+        if (FishingConfig.getInstance().isCatchRegistryDebugJson()) {
+            SeaCreatureCatches.getInstance().reload();
+        }
         if (!FishingConfig.getInstance().isUpdateCheckEnabled()) return;
         UpdateChecker.check("poseidon", GITHUB_RELEASES_URL);
     }

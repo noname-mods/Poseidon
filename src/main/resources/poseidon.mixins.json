@@ -3,7 +3,10 @@
   "package": "com.poseidon.mixin",
   "compatibilityLevel": "JAVA_25",
   "client": [
-    "MouseClickMixin"
+    "MouseClickMixin",
+    "ParticleCaptureMixin",
+    "SeaCreatureGlowMixin",
+    "SeaCreatureTeamColorMixin"
   ],
   "injectors": {
     "defaultRequire": 1

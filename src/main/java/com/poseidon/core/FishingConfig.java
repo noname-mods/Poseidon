@@ -42,8 +42,12 @@ public class FishingConfig {
      *  11 — hookStuckAutoRecast added (separate from global autoRecast)
      *  12 — slugfishMode / slugPet added
      *  13 — goldenFishAlertEnabled / goldenFishPhrase / goldenFishTitleText / goldenFishSound added
+     *  14 — hudX / hudY / hudScale added (shared HUD editor layout)
+     *  15 — per-stat HUD toggles (speed / DHC / SCC / treasure)
+     *  16 — log split into its own movable HUD element (logVisible + logHud layout)
+     *  17 — notInWaterRecastEnabled (default true) + logBobberParticles (default false)
      */
-    private static final int CURRENT_VERSION = 13;
+    private static final int CURRENT_VERSION = 17;
 
     /** Hypixel-standardised sea creature cap — same on every island. */
     public static final int SEA_CREATURE_CAP = 10;
@@ -82,6 +86,20 @@ public class FishingConfig {
     private double  creatureScanRadius = 12.0;
     private AlarmSound seaCreatureCapSound = new AlarmSound(
             "minecraft:entity.player.levelup", 1.0, 0.8, 10, 20);
+    /**
+     * Debug tool: when true, the sea-creature catch registry is read from the
+     * live-editable {@code config/poseidon/sea_creature_catches.json} instead of the
+     * bundled default. Off for normal use. See {@link SeaCreatureCatches}.
+     */
+    private boolean catchRegistryDebugJson = false;
+
+    /**
+     * Glow the sea creatures you caught, so they stand out from other players' mobs.
+     * Client-side outline only (no box) — see the glow mixins.
+     */
+    private boolean highlightSeaCreatures = false;
+    /** Glow colour for your tracked sea creatures, as packed RGB (no alpha). */
+    private int     seaCreatureHighlightColor = 0x55FFFF;
 
     // ── Despawn warning ────────────────────────────────────────────────────────
     /** Fire a warning alert when a tracked creature has been alive this many minutes. */
@@ -109,6 +127,19 @@ public class FishingConfig {
     private AlarmSound hookStuckSound            = new AlarmSound(
             "minecraft:entity.villager.no", 1.0, 1.2, 2, 10);
 
+    // ── "Not in water" recovery ────────────────────────────────────────────────
+    /**
+     * When true, Poseidon watches for the blue "bobber not in water" particle burst around the bobber
+     * (Hypixel's in-water/lava detection sometimes fails, so the bobber never bites) and force-recasts
+     * to recover. See {@link com.poseidon.core.ParticleWatch} + the FishingManager check.
+     */
+    private boolean notInWaterRecastEnabled = true;
+    /**
+     * Debug: log the distinct particle type ids seen around the bobber while waiting. Used to confirm
+     * exactly which particle Hypixel spawns for the "not in water" state so the trigger set is precise.
+     */
+    private boolean logBobberParticles = false;
+
     // ── Chat triggers ─────────────────────────────────────────────────────────
     /** Ordered list of trigger levels. First match wins. */
     private List<TriggerLevel> triggerLevels = defaultTriggerLevels();
@@ -130,7 +161,26 @@ public class FishingConfig {
             "minecraft:block.bell.use", 1.0, 1.0, 300, 40);
 
     // -- Fishing stats HUD ------------------------------------------------
+    /** Master toggle for the whole stats section. */
     private boolean fishingStatsHudVisible = true;
+    /** Per-line toggles. A line shows only when its toggle is on AND the stat appears in the tab list. */
+    private boolean statSpeedHudVisible    = true;
+    private boolean statDhcHudVisible      = true;
+    private boolean statSccHudVisible      = true;
+    private boolean statTreasureHudVisible = true;
+
+    // ── HUD layout (position + scale, edited via the shared HUD editor) ─────────
+    /** Top-left screen position + uniform scale of the Poseidon HUD panel. */
+    private float hudX     = 4f;
+    private float hudY     = 4f;
+    private float hudScale = 1.0f;
+
+    // ── Log panel (its own movable/scalable HUD element) ────────────────────────
+    /** Whether the log panel is shown at all. */
+    private boolean logVisible  = true;
+    private float   logHudX     = 4f;
+    private float   logHudY     = 140f;
+    private float   logHudScale = 1.0f;
 
     // ── Slugfish mode ─────────────────────────────────────────────────────────
     /**
@@ -171,6 +221,42 @@ public class FishingConfig {
     /** Alert sound played when the Golden Fish is detected. */
     private AlarmSound goldenFishSound = new AlarmSound(
             "minecraft:entity.player.levelup", 1.0, 1.2, 4, 20);
+
+    // ── Fishing abilities (Fire Veil / Totem of Corruption) ────────────────────
+
+    /** When and whether an ability item is auto-used after a catch. */
+    public enum AbilityMode { OFF, CONSTANT, AT_CAP }
+
+    /**
+     * Auto-use config for one hotbar ability item. {@code slot} is the 1-based hotbar
+     * slot (1–8; slot 9 / index 8 is the SkyBlock menu and is never used). {@code cooldownSeconds}
+     * is the minimum gap between auto-uses — tune it below the real ability duration to
+     * re-fire early for zero downtime.
+     */
+    public static class AbilityConfig {
+        public AbilityMode mode           = AbilityMode.OFF;
+        public int         slot           = 1;   // 1-based, clamped to 1..8
+        public double      cooldownSeconds = 6.0;
+    }
+
+    private AbilityConfig fireVeil = defaultAbility(1, 6.0);
+    private AbilityConfig totem    = defaultAbility(2, 300.0);
+
+    private static AbilityConfig defaultAbility(int slot, double cooldownSeconds) {
+        AbilityConfig a = new AbilityConfig();
+        a.slot = slot;
+        a.cooldownSeconds = cooldownSeconds;
+        return a;
+    }
+
+    /** Repairs a loaded ability config (GSON may leave fields null/zero on old configs). */
+    private static AbilityConfig sanitizeAbility(AbilityConfig a, int defaultSlot, double defaultCd) {
+        if (a == null) return defaultAbility(defaultSlot, defaultCd);
+        if (a.mode == null) a.mode = AbilityMode.OFF;
+        if (a.slot < 1 || a.slot > 8) a.slot = defaultSlot;
+        if (a.cooldownSeconds <= 0) a.cooldownSeconds = defaultCd;
+        return a;
+    }
 
     // ── Developer ─────────────────────────────────────────────────────────────
     private boolean debugMode = false;
@@ -325,6 +411,12 @@ public class FishingConfig {
 
                     this.trackSeaCreatures  = loaded.trackSeaCreatures;
                     this.creatureScanRadius = loaded.creatureScanRadius > 0 ? loaded.creatureScanRadius : 12.0;
+                    this.catchRegistryDebugJson = loaded.catchRegistryDebugJson;
+                    this.highlightSeaCreatures = loaded.highlightSeaCreatures;
+                    this.seaCreatureHighlightColor = loaded.seaCreatureHighlightColor != 0
+                            ? loaded.seaCreatureHighlightColor : 0x55FFFF;
+                    this.fireVeil = sanitizeAbility(loaded.fireVeil, 1, 6.0);
+                    this.totem    = sanitizeAbility(loaded.totem, 2, 300.0);
 
                     if (loaded.seaCreatureCapSound != null)
                         this.seaCreatureCapSound.mergeFrom(loaded.seaCreatureCapSound,
@@ -347,6 +439,9 @@ public class FishingConfig {
                         this.hookStuckSound.mergeFrom(loaded.hookStuckSound,
                                 new AlarmSound("minecraft:entity.villager.no", 1.0, 1.2, 2, 10));
 
+                    this.notInWaterRecastEnabled = loaded.notInWaterRecastEnabled;
+                    this.logBobberParticles      = loaded.logBobberParticles;
+
                     this.updateCheckEnabled = loaded.updateCheckEnabled;
 
                     this.baitHudVisible   = loaded.baitHudVisible;
@@ -362,6 +457,17 @@ public class FishingConfig {
                         this.rebootAlertSound.mergeFrom(loaded.rebootAlertSound,
                                 new AlarmSound("minecraft:block.bell.use", 1.0, 1.0, 300, 40));
                     this.fishingStatsHudVisible = loaded.fishingStatsHudVisible;
+                    this.statSpeedHudVisible    = loaded.statSpeedHudVisible;
+                    this.statDhcHudVisible      = loaded.statDhcHudVisible;
+                    this.statSccHudVisible      = loaded.statSccHudVisible;
+                    this.statTreasureHudVisible = loaded.statTreasureHudVisible;
+                    this.hudX     = loaded.hudX;
+                    this.hudY     = loaded.hudY;
+                    this.hudScale = loaded.hudScale > 0 ? loaded.hudScale : 1.0f;
+                    this.logVisible  = loaded.logVisible;
+                    this.logHudX     = loaded.logHudX;
+                    this.logHudY     = loaded.logHudY;
+                    this.logHudScale = loaded.logHudScale > 0 ? loaded.logHudScale : 1.0f;
                     this.slugfishMode           = loaded.slugfishMode;
                     this.slugPet                = loaded.slugPet;
 
@@ -409,7 +515,47 @@ public class FishingConfig {
         if (version < 11) json = migrateV10toV11(json);
         if (version < 12) json = migrateV11toV12(json);
         if (version < 13) json = migrateV12toV13(json);
+        if (version < 14) json = migrateV13toV14(json);
+        if (version < 15) json = migrateV14toV15(json);
+        if (version < 16) json = migrateV15toV16(json);
+        if (version < 17) json = migrateV16toV17(json);
         json.addProperty("configVersion", CURRENT_VERSION);
+        return json;
+    }
+
+    /** v16 -> v17: "not in water" recovery. notInWaterRecastEnabled defaults true (inject so GSON
+     *  doesn't leave it false); logBobberParticles defaults false (GSON handles that). */
+    private static JsonObject migrateV16toV17(JsonObject json) {
+        if (!json.has("notInWaterRecastEnabled")) json.addProperty("notInWaterRecastEnabled", true);
+        return json;
+    }
+
+    /** v15 -> v16: log split into its own HUD element. Inject visible + a default position/scale so the
+     *  log doesn't land at 0,0 with GSON's 0.0 scale (invisible). */
+    private static JsonObject migrateV15toV16(JsonObject json) {
+        if (!json.has("logVisible"))  json.addProperty("logVisible", true);
+        if (!json.has("logHudX"))     json.addProperty("logHudX", 4.0f);
+        if (!json.has("logHudY"))     json.addProperty("logHudY", 140.0f);
+        if (!json.has("logHudScale")) json.addProperty("logHudScale", 1.0f);
+        return json;
+    }
+
+    /** v14 -> v15: per-stat HUD toggles added (default true — inject so GSON doesn't leave them false). */
+    private static JsonObject migrateV14toV15(JsonObject json) {
+        if (!json.has("statSpeedHudVisible"))    json.addProperty("statSpeedHudVisible", true);
+        if (!json.has("statDhcHudVisible"))      json.addProperty("statDhcHudVisible", true);
+        if (!json.has("statSccHudVisible"))      json.addProperty("statSccHudVisible", true);
+        if (!json.has("statTreasureHudVisible")) json.addProperty("statTreasureHudVisible", true);
+        return json;
+    }
+
+    /** v13 -> v14: HUD layout fields added. Inject the current default position/scale so an
+     *  upgraded config keeps the panel where it always was (top-left, 1.0x) — and, critically,
+     *  so hudScale is never left as GSON's 0.0 (which would render the panel invisibly small). */
+    private static JsonObject migrateV13toV14(JsonObject json) {
+        if (!json.has("hudX"))     json.addProperty("hudX", 4.0f);
+        if (!json.has("hudY"))     json.addProperty("hudY", 4.0f);
+        if (!json.has("hudScale")) json.addProperty("hudScale", 1.0f);
         return json;
     }
 
@@ -554,6 +700,18 @@ public class FishingConfig {
     public double getCreatureScanRadius() { return creatureScanRadius; }
     public void setCreatureScanRadius(double v) { creatureScanRadius = v; save(); }
 
+    public boolean isCatchRegistryDebugJson() { return catchRegistryDebugJson; }
+    public void setCatchRegistryDebugJson(boolean v) { catchRegistryDebugJson = v; save(); }
+
+    public boolean isHighlightSeaCreatures() { return highlightSeaCreatures; }
+    public void setHighlightSeaCreatures(boolean v) { highlightSeaCreatures = v; save(); }
+
+    public int  getSeaCreatureHighlightColor() { return seaCreatureHighlightColor; }
+    public void setSeaCreatureHighlightColor(int v) { seaCreatureHighlightColor = v; save(); }
+
+    public AbilityConfig getFireVeil() { return fireVeil; }
+    public AbilityConfig getTotem()    { return totem; }
+
     public AlarmSound getSeaCreatureCapSound() { return seaCreatureCapSound; }
 
     public boolean isDespawnWarningEnabled() { return despawnWarningEnabled; }
@@ -578,6 +736,12 @@ public class FishingConfig {
 
     public AlarmSound getHookStuckSound() { return hookStuckSound; }
 
+    public boolean isNotInWaterRecastEnabled() { return notInWaterRecastEnabled; }
+    public void setNotInWaterRecastEnabled(boolean v) { notInWaterRecastEnabled = v; save(); }
+
+    public boolean isLogBobberParticles() { return logBobberParticles; }
+    public void setLogBobberParticles(boolean v) { logBobberParticles = v; save(); }
+
     public boolean isUpdateCheckEnabled() { return updateCheckEnabled; }
     public void setUpdateCheckEnabled(boolean v) { updateCheckEnabled = v; save(); }
 
@@ -596,6 +760,42 @@ public class FishingConfig {
 
     public boolean isFishingStatsHudVisible()  { return fishingStatsHudVisible; }
     public void setFishingStatsHudVisible(boolean v) { fishingStatsHudVisible = v; save(); }
+
+    public boolean isStatSpeedHudVisible()    { return statSpeedHudVisible; }
+    public void setStatSpeedHudVisible(boolean v) { statSpeedHudVisible = v; save(); }
+    public boolean isStatDhcHudVisible()      { return statDhcHudVisible; }
+    public void setStatDhcHudVisible(boolean v) { statDhcHudVisible = v; save(); }
+    public boolean isStatSccHudVisible()      { return statSccHudVisible; }
+    public void setStatSccHudVisible(boolean v) { statSccHudVisible = v; save(); }
+    public boolean isStatTreasureHudVisible() { return statTreasureHudVisible; }
+    public void setStatTreasureHudVisible(boolean v) { statTreasureHudVisible = v; save(); }
+
+    public float getHudX()     { return hudX; }
+    public float getHudY()     { return hudY; }
+    public float getHudScale() { return hudScale; }
+
+    /** Persists the HUD panel's position + scale in one write (called when the editor closes). */
+    public void setHudLayout(float x, float y, float scale) {
+        this.hudX = x;
+        this.hudY = y;
+        this.hudScale = scale > 0 ? scale : 1.0f;
+        save();
+    }
+
+    public boolean isLogVisible() { return logVisible; }
+    public void setLogVisible(boolean v) { logVisible = v; save(); }
+
+    public float getLogHudX()     { return logHudX; }
+    public float getLogHudY()     { return logHudY; }
+    public float getLogHudScale() { return logHudScale; }
+
+    /** Persists the log panel's position + scale (called when the editor closes). */
+    public void setLogLayout(float x, float y, float scale) {
+        this.logHudX = x;
+        this.logHudY = y;
+        this.logHudScale = scale > 0 ? scale : 1.0f;
+        save();
+    }
 
     public boolean isSlugfishMode() { return slugfishMode; }
     public void setSlugfishMode(boolean v) { slugfishMode = v; save(); }

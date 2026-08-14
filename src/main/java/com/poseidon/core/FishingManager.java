@@ -8,10 +8,16 @@ import com.playerapi.TabListInfo;
 import net.minecraft.client.Minecraft;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.decoration.ArmorStand;
+import net.minecraft.world.entity.projectile.FishingHook;
 import net.minecraft.world.phys.AABB;
+import net.minecraft.world.phys.Vec3;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Core state machine for Poseidon.
@@ -35,8 +41,17 @@ public class FishingManager {
     private static final FishingManager INSTANCE = new FishingManager();
 
     // ── Timing constants ──────────────────────────────────────────────────────
-    /** Ticks after reel-in before scanning for new sea creatures. */
+    /** Ticks after the catch line is identified before binding its name plate. */
     private static final int SCAN_DELAY_TICKS     = 5;
+    /** Ticks between matched-catch scan retries (see {@link #scanForCatchWithRetry}). */
+    private static final int SCAN_RETRY_INTERVAL  = 5;
+    /** Max matched-catch scan attempts (~SCAN_RETRY_INTERVAL × this ticks of coverage). */
+    private static final int SCAN_MAX_ATTEMPTS    = 6;
+    /**
+     * Ticks after a reel-in before the proximity <em>fallback</em> scan runs. Long enough for the
+     * catch chat line to arrive and bind precisely; the fallback is skipped if it did.
+     */
+    private static final int FALLBACK_SCAN_DELAY_TICKS = 30;
     /** How often (in ticks) to remove creatures that have disappeared. */
     private static final int CLEANUP_PERIOD_TICKS = 40;
     /** How often (in ticks) to refresh the current area from the tab list. */
@@ -48,6 +63,8 @@ public class FishingManager {
      * leaving the state machine with nothing to retry.
      */
     private static final int IDLE_TIMEOUT_TICKS   = 100;
+    /** Ticks a bobber may be missing during WAITING before it counts as lost (server-stutter grace). */
+    private static final int BOBBER_LOST_GRACE_TICKS = 6;
     /** Slugfish normal-mode delay: 21 s (1 s safety margin over the 20 s requirement). */
     private static final int SLUGFISH_NORMAL_TICKS = 420;
     /** Slugfish Slug-Pet delay: 11 s (1 s safety margin over the 10 s halved requirement). */
@@ -64,9 +81,35 @@ public class FishingManager {
      */
     private static final int CATCH_WINDOW_TICKS    = 200; // 10 s
 
+    // ── "Not in water" particle detection ──────────────────────────────────────
+    /**
+     * Particle type ids that signal the "bobber not in water" state — confirmed by live capture to be the
+     * blue {@code minecraft:dust} (coloured redstone dust) burst Hypixel spawns. Deliberately excludes the
+     * normal in-water fishing particles (bubble / splash / fishing wake), which appear during healthy
+     * fishing and would cause false recasts.
+     */
+    private static final java.util.Set<String> NOT_IN_WATER_PARTICLES = java.util.Set.of(
+            "minecraft:dust");
+    /** Radius around the bobber to count particles in. */
+    private static final double NOT_IN_WATER_RADIUS = 1.6;
+    /** Look back over this many ticks of recorded particles (~1s). */
+    private static final int NOT_IN_WATER_WINDOW_TICKS = 20;
+    /** This many matching particles near the bobber within the window → treat as "not in water". */
+    private static final int NOT_IN_WATER_MIN_HITS = 8;
+    /** Wait this long after the bobber lands before checking, so the cast's own splash is ignored. */
+    private static final int NOT_IN_WATER_SETTLE_TICKS = 30;
+    /** Minimum gap between forced not-in-water recasts (~3s), so we never spam. */
+    private static final int NOT_IN_WATER_COOLDOWN_TICKS = 60;
+
     // ── Fishing state ─────────────────────────────────────────────────────────
     private boolean active = false;
     private FishingState state = FishingState.IDLE;
+    /**
+     * "First real cast" gate for the no-bobber recovery watchdog. The bot never bootstraps a cast from
+     * cold — it waits until you manually cast once (a real bobber appears) before it will auto-recast a
+     * lost/failed bobber. Switching off the rod resets this, so re-equipping waits for a real cast again.
+     */
+    private boolean seenRealCast = false;
 
     // Saved bobber position at the moment !!! is detected (bobber may vanish by reel time).
     private double lastBobberX, lastBobberY, lastBobberZ;
@@ -74,7 +117,22 @@ public class FishingManager {
     // ── Sea creature tracking ─────────────────────────────────────────────────
     private final List<TrackedSeaCreature> tracked = new ArrayList<>();
     private boolean capAlertFired = false;
+    /**
+     * Chat-confirmed catch state. On each reel a fresh window opens; the first catch
+     * chat line that arrives ({@link #handleCatchMessage}) identifies the creature and
+     * schedules the bind, then latches {@code caughtThisWindow} so later messages in the
+     * same window can't double-add. Bobber position is snapshotted for the bind scan.
+     */
+    private boolean caughtThisWindow = false;
+    /** True once a DOUBLE HOOK! line was seen this window — used even if the creature is unknown. */
+    private boolean pendingDoubleHook = false;
+    private double  catchBobberX, catchBobberY, catchBobberZ;
     private long lastCleanupTick = 0;
+
+    /** Last tick a "not in water" forced recast fired (cooldown gate). */
+    private long lastNotInWaterRecastTick = Long.MIN_VALUE / 2;
+    /** Throttle for the particle-type debug log. */
+    private long lastParticleLogTick = Long.MIN_VALUE / 2;
 
     // ── Area tracking ─────────────────────────────────────────────────────────
     /** Current island as read from the Hypixel tab list "Area:" line. Empty if unknown. */
@@ -91,11 +149,19 @@ public class FishingManager {
     private boolean pendingSuppressRecast = false;
     private boolean pendingStopBot        = false;
     /**
-     * Tick at which the most recent recast tapKey was sent, or -1 when no recast
-     * is pending. Used by the idle watchdog to detect a failed/dropped recast and
-     * retry automatically.
+     * Tick from which we've been IDLE with no bobber, or -1 when we have a bobber. Drives the
+     * recovery watchdog: if it stays set past {@link #IDLE_TIMEOUT_TICKS}, the cast is assumed to
+     * have failed (or never happened) and we recast — <em>regardless of how we reached IDLE</em>.
+     * This replaces the old recast-only watchdog, which could be left disarmed after a bobber was
+     * lost from WAITING, leaving the bot stuck in IDLE forever.
      */
-    private long lastRecastTick = -1;
+    private long idleNoBobberSince = -1;
+    /**
+     * Consecutive ticks the bobber has been missing while WAITING. A brief server stutter can null
+     * {@code player.fishing} for a tick or two; we tolerate {@link #BOBBER_LOST_GRACE_TICKS} of that
+     * before treating the bobber as genuinely lost, so a flicker doesn't bounce WAITING→IDLE.
+     */
+    private int bobberMissingTicks = 0;
     /**
      * Tick at which the bobber was first detected this cast (IDLE → WAITING).
      * Used by slugfish mode to measure elapsed time since the cast.
@@ -148,6 +214,11 @@ public class FishingManager {
 
     private static class TrackedSeaCreature {
         int    entityId;
+        /**
+         * The actual creature beneath the name plate, resolved once when it's bound (-1 if we
+         * couldn't find it). We track the plate, but the glow has to apply to the mob itself.
+         */
+        int    mobId = -1;
         final String name;
         /** Tick at which this creature was first detected, for despawn-warning age checks. */
         final long   spawnTick;
@@ -176,10 +247,41 @@ public class FishingManager {
         Minecraft mc = Minecraft.getInstance();
         if (mc.player == null || mc.level == null) return;
 
+        // Keep the glow set in sync even while the bot is idle — creatures you already caught
+        // should stay highlighted after you stop the bot to kill them.
+        updateGlow();
+
+        // Only record particles while the bot is running and the not-in-water feature (or its debug) is on.
+        FishingConfig pcfg = FishingConfig.getInstance();
+        ParticleWatch.getInstance().setActive(
+                active && (pcfg.isNotInWaterRecastEnabled() || pcfg.isLogBobberParticles()));
+
         if (!active) return;
+
+        // Recover a desynced bobber: on Hypixel the hook entity sometimes spawns without the
+        // client ever linking it to player.fishing, which would wedge the bot in IDLE forever
+        // (a cast rod but hasBobber == false). If our link is missing, find the FishingHook we
+        // actually own in the world and re-link it, so all detection below works normally.
+        if (mc.player.fishing == null) {
+            FishingHook own = findOwnBobber(mc);
+            if (own != null) {
+                mc.player.fishing = own;
+                PoseidonLogger.getInstance().logInfo(
+                        "[cast] re-linked desynced bobber (player.fishing was null)");
+            }
+        }
 
         boolean hasBobber = mc.player.fishing != null;
         long currentTick  = Scheduler.getCurrentTick();
+
+        // "First real cast" gate: a real bobber marks that fishing has genuinely started (the first one can
+        // only be a manual cast, since the watchdog won't auto-cast until this is set). Switching off the
+        // rod clears it, so the bot again waits for a real cast when you come back to the rod.
+        if (!com.playerapi.PlayerInfo.getHeldItem().skyblockId().contains("ROD")) {
+            seenRealCast = false;
+        } else if (hasBobber) {
+            seenRealCast = true;
+        }
 
         // ── GUI-close lock ────────────────────────────────────────────────────
         // Track open→closed transitions and arm a random delay so the bot never
@@ -206,32 +308,50 @@ public class FishingManager {
                 if (hasBobber) {
                     state             = FishingState.WAITING;
                     bobberSettleTicks = 0;
+                    bobberMissingTicks = 0;
                     hookStuckFired    = false;
-                    lastRecastTick    = -1; // bobber landed — watchdog no longer needed
+                    idleNoBobberSince = -1; // bobber landed — recovery watchdog no longer needed
                     castTick          = currentTick; // start slugfish / general cast timer
                     // Bait is consumed on cast — read it now so alerts fire at the right moment
                     tickBait();
                     PoseidonLogger.getInstance().logInfo("Bobber detected — watching for !!!");
-                } else if (lastRecastTick >= 0
-                        && currentTick - lastRecastTick > IDLE_TIMEOUT_TICKS) {
-                    // Watchdog: recast was sent but no bobber appeared within the timeout.
-                    // This happens when the cast fails (e.g. server lag, missed use packet)
-                    // or the bobber surfaced and sank before the IDLE case ran.
-                    PoseidonLogger.getInstance().logWarn(
-                            "No bobber detected after recast — retrying cast");
-                    lastRecastTick = -1; // clear before scheduleRecast sets it again
-                    scheduleRecast(FishingConfig.getInstance());
+                } else if (!isReadyToCast(mc)) {
+                    // In a GUI/menu or not holding a rod — the bot can't meaningfully cast, so don't
+                    // attempt it (and don't spam the log every 5s). Hold the watchdog paused so it
+                    // starts a fresh window once you're back on the rod / out of the menu.
+                    idleNoBobberSince = currentTick;
+                } else if (!seenRealCast) {
+                    // Active + on the rod, but you haven't cast yet this rod session — never bootstrap a
+                    // cast from cold. Hold the watchdog paused until a real (manual) cast starts fishing.
+                    idleNoBobberSince = currentTick;
+                } else {
+                    // No bobber while IDLE, and fishing was really underway. Time it from the first such
+                    // tick, and once we've been stuck past the timeout, recast — this catches a
+                    // failed/dropped cast AND a bobber that was lost from WAITING.
+                    if (idleNoBobberSince < 0) idleNoBobberSince = currentTick;
+                    else if (currentTick - idleNoBobberSince > IDLE_TIMEOUT_TICKS) {
+                        PoseidonLogger.getInstance().logWarn(
+                                "No bobber for " + IDLE_TIMEOUT_TICKS + " ticks — recasting");
+                        idleNoBobberSince = currentTick; // reset so a failed retry waits another cycle
+                        scheduleRecast(FishingConfig.getInstance());
+                    }
                 }
             }
 
             case WAITING -> {
                 if (!hasBobber) {
+                    // Tolerate a brief flicker (server stutter can null the hook for a tick or two)
+                    // before deciding the bobber is genuinely gone.
+                    if (++bobberMissingTicks <= BOBBER_LOST_GRACE_TICKS) return;
+                    bobberMissingTicks = 0;
                     nearbyText = "";
                     state    = FishingState.IDLE;
                     castTick = -1;
+                    idleNoBobberSince = currentTick; // arm recovery from the moment we drop to IDLE
                     PoseidonLogger.getInstance().logInfo("Bobber lost while waiting");
                     return;
                 }
+                bobberMissingTicks = 0; // have the bobber — reset the flicker counter
                 if (detectBite(mc)) {
                     if (guiLocked) {
                         // GUI is open or the post-close delay hasn't elapsed yet —
@@ -261,6 +381,8 @@ public class FishingManager {
                     nearbyText = scanNearbyText(mc);
                     // Check if the bobber has drifted too far (attached to a mob)
                     checkHookStuck(mc);
+                    // Check for the blue "bobber not in water" particle burst → force a recast
+                    checkNotInWater(mc, currentTick);
                 }
             }
 
@@ -286,6 +408,21 @@ public class FishingManager {
             lastCleanupTick = currentTick;
             cleanupDeadCreatures(mc);
         }
+    }
+
+    /**
+     * Finds the FishingHook the local player actually owns, by entity search — used to repair a
+     * missing {@code player.fishing} link. Returns {@code null} if no such hook exists (a genuine
+     * "no bobber" state, e.g. a failed cast — left for the recast watchdog).
+     */
+    private static FishingHook findOwnBobber(Minecraft mc) {
+        if (mc.level == null || mc.player == null) return null;
+        double r = 40.0; // beyond practical cast range
+        AABB box = new AABB(mc.player.getX() - r, mc.player.getY() - r, mc.player.getZ() - r,
+                            mc.player.getX() + r, mc.player.getY() + r, mc.player.getZ() + r);
+        var hooks = mc.level.getEntitiesOfClass(FishingHook.class, box,
+                h -> h.getPlayerOwner() == mc.player);
+        return hooks.isEmpty() ? null : hooks.get(0);
     }
 
     // ── Bite detection ────────────────────────────────────────────────────────
@@ -340,6 +477,7 @@ public class FishingManager {
         final double bx = lastBobberX, by = lastBobberY, bz = lastBobberZ;
 
         Scheduler.scheduleMs(delayMs, () -> {
+            boolean reeledThisCast; // true only when an actual reel-in happened (a catch)
             if (state == FishingState.BITING) {
                 // Normal path — bobber was still present when the reaction delay elapsed.
                 state = FishingState.REELING;
@@ -347,16 +485,33 @@ public class FishingManager {
                 lastReelTick = Scheduler.getCurrentTick(); // open the catch-message window
                 PoseidonLogger.getInstance().logInfo("Reel in sent");
 
-                // Creature scan: bobber may vanish within a tick, so anchor scan to
-                // SCAN_DELAY_TICKS after the reel (not after the 10-tick state reset).
+                // Open a fresh chat-confirmed catch window. The actual sea-creature bind
+                // now happens when the catch chat line arrives (handleCatchMessage), which
+                // tells us exactly which creature (and whether it was a Double Hook) rather
+                // than guessing by proximity. Snapshot the bobber for that later scan, since
+                // it may vanish within a tick.
                 if (cfg.isTrackSeaCreatures()) {
-                    Scheduler.schedule(SCAN_DELAY_TICKS, () -> scanForNewCreatures(bx, by, bz));
+                    caughtThisWindow  = false;
+                    pendingDoubleHook = false;
+                    catchBobberX = bx; catchBobberY = by; catchBobberZ = bz;
+
+                    // Fallback: if no known catch line identified the creature in time (an unlisted
+                    // creature, or no line at all), fall back to the old proximity scan so it's
+                    // still tracked. Skipped when the chat line already bound precisely.
+                    Scheduler.schedule(FALLBACK_SCAN_DELAY_TICKS, () -> {
+                        if (caughtThisWindow) return;
+                        caughtThisWindow = true;
+                        PoseidonLogger.getInstance().logInfo(
+                                "[sc] no catch line matched — proximity fallback scan");
+                        scanForNewCreatures(bx, by, bz, null, pendingDoubleHook ? 2 : 1);
+                    });
                 }
 
                 // Reset state after the reel-in window.
                 Scheduler.schedule(10, () -> {
                     if (state == FishingState.REELING) state = FishingState.IDLE;
                 });
+                reeledThisCast = true;
 
             } else if (state == FishingState.IDLE) {
                 // The tick handler set state = IDLE because the bobber vanished before
@@ -365,6 +520,7 @@ public class FishingManager {
                 // bot doesn't stall forever waiting for a bobber that will never arrive.
                 PoseidonLogger.getInstance().logInfo(
                         "[reel] bobber lost during reaction delay — skipping tapKey, recast still scheduled");
+                reeledThisCast = false;
 
             } else {
                 // WAITING or any other unexpected state — abort entirely.
@@ -375,6 +531,7 @@ public class FishingManager {
             // Runs for both the BITING (normal) and IDLE (pre-vanished bobber) paths.
             pendingSuppressRecast = false;
             pendingStopBot        = false;
+            final boolean reeled  = reeledThisCast; // gate abilities to real catches only
             int decisionTicks = cfg.getRecastDecisionTicks();
             PoseidonLogger.getInstance().logInfo(
                     "[recast] waiting " + decisionTicks + " ticks for triggers");
@@ -397,7 +554,15 @@ public class FishingManager {
                             "Recast suppressed — waiting for manual cast.");
                     return;
                 }
-                scheduleRecast(cfg);
+                // Auto-use fishing abilities (Fire Veil / Totem) between reel and recast — but
+                // only after a real catch, not when the bobber vanished before the reel. Then
+                // recast once back on the rod slot. No abilities due → recast immediately.
+                if (reeled) {
+                    boolean atCap = tracked.size() >= FishingConfig.SEA_CREATURE_CAP;
+                    AbilityManager.getInstance().runDueAbilities(atCap, () -> scheduleRecast(cfg));
+                } else {
+                    scheduleRecast(cfg);
+                }
             });
         });
     }
@@ -418,6 +583,18 @@ public class FishingManager {
         if (stopBot)    pendingStopBot        = true;
     }
 
+    /**
+     * True when the bot can actually cast right now: no screen (GUI/menu) is open and the player is
+     * holding a fishing rod. Used to pause the IDLE recast watchdog so it doesn't attempt — or log —
+     * a cast every {@link #IDLE_TIMEOUT_TICKS} ticks while you're in a menu or off the rod.
+     */
+    private static boolean isReadyToCast(Minecraft mc) {
+        if (mc.screen != null) return false;
+        if (mc.player == null) return false;
+        // Identify the rod by its stable SkyBlock id (contains "ROD"), not the renamed display name.
+        return com.playerapi.PlayerInfo.getHeldItem().skyblockId().contains("ROD");
+    }
+
     private void scheduleRecast(FishingConfig cfg) {
         int min   = cfg.getRecastDelayMinMs();
         int max   = cfg.getRecastDelayMaxMs();
@@ -436,32 +613,86 @@ public class FishingManager {
             }
             Minecraft mc = Minecraft.getInstance();
             if (mc.player == null) return;
-            String held = mc.player.getMainHandItem().getHoverName().getString();
-            if (!held.toLowerCase().contains("rod")) {
+            if (!com.playerapi.PlayerInfo.getHeldItem().skyblockId().contains("ROD")) {
+                String held = mc.player.getMainHandItem().getHoverName().getString();
                 PoseidonLogger.getInstance().logInfo(
                         "[recast] skipped — not holding a rod (" + held + ")");
                 return;
             }
             MovementActions.tapKey("use", 100);
-            lastRecastTick = Scheduler.getCurrentTick(); // arm the idle watchdog
+            // Anchor the recovery watchdog to this cast: it gets a full IDLE_TIMEOUT window to
+            // produce a bobber before we retry.
+            idleNoBobberSince = Scheduler.getCurrentTick();
             tickBait(); // bait consumed on cast — read after each recast too
             PoseidonLogger.getInstance().logInfo("Recast sent");
         });
     }
 
+    // ── "Not in water" recovery ────────────────────────────────────────────────
+
+    /**
+     * Detects the blue "bobber not in water" particle burst Hypixel spawns when its in/out-of-water (or
+     * lava) detection fails on a cast — the bobber sits there emitting particles but will never bite. When
+     * a cluster of the {@link #NOT_IN_WATER_PARTICLES} appears right at the bobber (after it has settled,
+     * so the cast's own splash is ignored), we reel in and recast to recover. On by default; disabled via
+     * {@code notInWaterRecastEnabled}.
+     */
+    private void checkNotInWater(Minecraft mc, long now) {
+        FishingConfig cfg = FishingConfig.getInstance();
+        if (mc.player.fishing == null) return;
+        // Give the bobber a moment to settle after landing (castTick = the tick it was detected).
+        if (castTick < 0 || now - castTick < NOT_IN_WATER_SETTLE_TICKS) return;
+
+        double bx = mc.player.fishing.getX();
+        double by = mc.player.fishing.getY();
+        double bz = mc.player.fishing.getZ();
+        long since = now - NOT_IN_WATER_WINDOW_TICKS;
+
+        // Debug: surface exactly which particle ids are appearing at the bobber so the trigger set can be
+        // confirmed/extended. Logged at WARN so it's visible without raising the log level.
+        if (cfg.isLogBobberParticles() && now - lastParticleLogTick >= 20) {
+            java.util.Set<String> types =
+                    ParticleWatch.getInstance().typesNear(bx, by, bz, NOT_IN_WATER_RADIUS, since);
+            if (!types.isEmpty()) {
+                lastParticleLogTick = now;
+                PoseidonLogger.getInstance().logWarn("[water] particles at bobber: " + types);
+            }
+        }
+
+        if (!cfg.isNotInWaterRecastEnabled()) return;
+        if (now - lastNotInWaterRecastTick < NOT_IN_WATER_COOLDOWN_TICKS) return;
+
+        int hits = ParticleWatch.getInstance()
+                .countNear(bx, by, bz, NOT_IN_WATER_RADIUS, since, NOT_IN_WATER_PARTICLES);
+        if (hits >= NOT_IN_WATER_MIN_HITS) {
+            lastNotInWaterRecastTick = now;
+            PoseidonLogger.getInstance().logWarn("[water] bobber not in water (" + hits
+                    + " blue particles) — reeling in and recasting");
+            // Reel in the stuck bobber, drop to IDLE, then recast (scheduleRecast casts only when IDLE).
+            MovementActions.tapKey("use", 100);
+            state = FishingState.IDLE;
+            castTick = -1;
+            idleNoBobberSince = now; // reset the recovery watchdog so it doesn't also fire
+            scheduleRecast(cfg);
+        }
+    }
+
     // ── Sea creature tracking ─────────────────────────────────────────────────
 
     /**
-     * Scans entities near the given position for an untracked sea creature name
-     * plate (identified by the resource pack's water/lava type glyph).
-     * At most one creature is added per reel-in to avoid picking up other
-     * players' nearby sea creatures. In the future this will be tightened
-     * further by matching against the specific creature type from the catch
-     * chat message.
+     * Binds newly-spawned sea creature name plate(s) near the bobber to the tracked list.
+     *
+     * <p>Driven by {@link #handleCatchMessage}: when {@code targetName} is non-null the catch
+     * chat line identified exactly what was caught, so only plates whose name matches are
+     * eligible — this is the precise, chat-confirmed path. When {@code targetName} is null the
+     * line was unknown (a creature we have no line for, or a plain fish/item catch), so it
+     * falls back to the old proximity behaviour: any untracked sea-creature plate. Either way
+     * at most {@code count} are added (2 for a Double Hook, 1 otherwise), nearest to the bobber
+     * first, so a plain fish catch — which spawns no plate — adds nothing.</p>
      */
-    private void scanForNewCreatures(double bx, double by, double bz) {
+    private int scanForNewCreatures(double bx, double by, double bz, String targetName, int count) {
         Minecraft mc = Minecraft.getInstance();
-        if (mc.level == null || mc.player == null) return;
+        if (mc.level == null || mc.player == null) return 0;
 
         FishingConfig cfg = FishingConfig.getInstance();
         double r = cfg.getCreatureScanRadius();
@@ -471,41 +702,197 @@ public class FishingManager {
         java.util.Set<Integer> knownIds = new java.util.HashSet<>();
         for (TrackedSeaCreature t : tracked) knownIds.add(t.entityId);
 
+        // Collect eligible untracked plates, skipping nameplate refreshes of tracked creatures.
+        List<Entity> candidates = new ArrayList<>();
         for (Entity entity : mc.level.getEntities(mc.player, searchBox)) {
-            if (!knownIds.contains(entity.getId()) && isSeaCreatureDisplay(entity)) {
-                String name = extractCreatureName(entity);
+            if (knownIds.contains(entity.getId())) continue;
+            if (!isSeaCreatureDisplay(entity)) continue;
+            String name = extractCreatureName(entity);
+            if (isNameplateRefresh(entity, name)) continue;
+            if (targetName != null && !labelMatches(entity, targetName)) continue;
+            candidates.add(entity);
+        }
 
-                // Hypixel sometimes refreshes a sea creature's nameplate display entity
-                // (e.g. when its HP bar updates), giving it a new entity ID while the
-                // creature itself hasn't moved. Detect this by checking if any tracked
-                // creature with the same name is already within 3 blocks of this entity.
-                // If so, update the stored ID in-place rather than counting it as a new catch.
-                boolean isRefreshedNameplate = false;
-                if (!name.isEmpty()) {
-                    for (TrackedSeaCreature t : tracked) {
-                        if (t.name.equals(name)) {
-                            double dx = entity.getX() - t.lastX;
-                            double dz = entity.getZ() - t.lastZ;
-                            if (dx * dx + dz * dz < 9.0) { // within 3 blocks
-                                t.entityId = entity.getId();
-                                isRefreshedNameplate = true;
-                                break;
-                            }
-                        }
-                    }
+        // Nearest to the bobber first, so a Double Hook binds the two closest matching plates.
+        candidates.sort(java.util.Comparator.comparingDouble(e -> {
+            double dx = e.getX() - bx, dz = e.getZ() - bz;
+            return dx * dx + dz * dz;
+        }));
+
+        int added = 0;
+        for (Entity entity : candidates) {
+            if (added >= count) break;
+            String name = extractCreatureName(entity);
+            TrackedSeaCreature t = new TrackedSeaCreature(entity.getId(), name,
+                    Scheduler.getCurrentTick(), entity.getX(), entity.getZ());
+            // Resolve the creature under the plate once, so the glow can target the mob itself.
+            Entity mob = findMobUnderLabel(mc, entity.position());
+            if (mob != null) t.mobId = mob.getId();
+            tracked.add(t);
+            PoseidonLogger.getInstance().logInfo(
+                    "Tracking: " + name + " (id=" + entity.getId() + ") -- total: " + tracked.size());
+            checkCapAlert();
+            added++;
+        }
+        return added;
+    }
+
+    /**
+     * Binds a chat-matched catch, retrying the scan a few times if the plate hasn't spawned yet. A matched
+     * catch has <b>no</b> proximity fallback (the fallback is disabled once {@code caughtThisWindow}
+     * latches), so a single shot would silently miss when catches come in fast and the nameplate entity
+     * lags a few ticks behind the chat line — exactly the "two catches within a second, count ends up off"
+     * case. We re-scan every {@link #SCAN_RETRY_INTERVAL} ticks until the target(s) bind or attempts run
+     * out; {@code knownIds}/the remaining count keep it from ever over-adding.
+     */
+    private void scanForCatchWithRetry(double bx, double by, double bz, String target,
+                                       int remaining, int attemptsLeft) {
+        remaining -= scanForNewCreatures(bx, by, bz, target, remaining);
+        if (remaining <= 0 || attemptsLeft <= 1) return;
+        final int rem = remaining;
+        Scheduler.schedule(SCAN_RETRY_INTERVAL, () ->
+                scanForCatchWithRetry(bx, by, bz, target, rem, attemptsLeft - 1));
+    }
+
+    /**
+     * Hypixel sometimes refreshes a sea creature's nameplate display entity (e.g. when its HP
+     * bar updates), giving it a new entity ID while the creature itself hasn't moved. If
+     * {@code entity} is such a refresh of an already-tracked creature (same name, within 3
+     * blocks), this updates the stored ID in place and returns true so the caller skips it
+     * rather than counting it as a fresh catch.
+     */
+    /**
+     * Finds the actual sea creature beneath a name plate. We track the plate (an armour stand /
+     * text display), but the glow must apply to the mob, so this resolves it the same way ESP
+     * does: the nearest living, non-plate entity within a few blocks horizontally that sits 0–6
+     * blocks below the label. Returns {@code null} if nothing matches.
+     */
+    private static Entity findMobUnderLabel(Minecraft mc, Vec3 labelPos) {
+        if (mc.level == null) return null;
+        final double r = 4.0;
+        AABB box = new AABB(labelPos.x - r, labelPos.y - 7, labelPos.z - r,
+                            labelPos.x + r, labelPos.y + 1, labelPos.z + r);
+
+        Entity closest = null;
+        double best = Double.MAX_VALUE;
+        for (Entity e : mc.level.getEntities(mc.player, box)) {
+            if (!(e instanceof LivingEntity)) continue;
+            if (e instanceof ArmorStand) continue;
+            if (e instanceof net.minecraft.world.entity.Display) continue;
+
+            double dy = labelPos.y - e.getY(); // positive = label above the mob
+            if (dy < 0.0 || dy > 6.0) continue;
+
+            double dx = labelPos.x - e.getX(), dz = labelPos.z - e.getZ();
+            double d2 = dx * dx + dz * dz;
+            if (d2 < r * r && d2 < best) { best = d2; closest = e; }
+        }
+        return closest;
+    }
+
+    // ── Sea creature glow (read by the glow mixins on the render thread) ───────
+
+    /** Mob entity ID → packed RGB glow colour. Replaced atomically; never mutated after publish. */
+    private volatile Map<Integer, Integer> glowingMobs = Map.of();
+
+    /** Rebuilt every tick from the tracked list so it follows config + tracking changes. */
+    private void updateGlow() {
+        FishingConfig cfg = FishingConfig.getInstance();
+        if (!cfg.isHighlightSeaCreatures() || tracked.isEmpty()) {
+            if (!glowingMobs.isEmpty()) glowingMobs = Map.of();
+            return;
+        }
+        int color = cfg.getSeaCreatureHighlightColor();
+        Map<Integer, Integer> map = new HashMap<>();
+        for (TrackedSeaCreature t : tracked) {
+            if (t.mobId >= 0) map.put(t.mobId, color);
+        }
+        glowingMobs = map;
+    }
+
+    public boolean isSeaCreatureGlowing(int entityId) { return glowingMobs.containsKey(entityId); }
+    public int getSeaCreatureGlowColor(int entityId) { return glowingMobs.getOrDefault(entityId, 0xFFFFFF); }
+
+    /** Raw label text of a name-plate entity (custom name or text display); "" if it has none. */
+    private static String rawLabelText(Entity entity) {
+        Component name = entity.getCustomName();
+        if (name != null) return name.getString();
+        if (entity instanceof net.minecraft.world.entity.Display.TextDisplay td
+                && td.getText() != null) {
+            return td.getText().getString();
+        }
+        return "";
+    }
+
+    /**
+     * True if this plate's label <em>contains</em> the caught creature's name. The label is never
+     * exactly the name — it carries the level prefix, the type glyph, HP and formatting codes — so
+     * this compares on the normalized text (codes + pack glyphs stripped, lower-cased) rather than
+     * requiring an exact match.
+     */
+    private static boolean labelMatches(Entity entity, String targetName) {
+        String norm = SeaCreatureCatches.normalized(rawLabelText(entity));
+        return !norm.isEmpty()
+                && norm.contains(targetName.toLowerCase(java.util.Locale.ROOT));
+    }
+
+    private boolean isNameplateRefresh(Entity entity, String name) {
+        if (name == null || name.isEmpty()) return false;
+        for (TrackedSeaCreature t : tracked) {
+            if (t.name.equals(name)) {
+                double dx = entity.getX() - t.lastX;
+                double dz = entity.getZ() - t.lastZ;
+                if (dx * dx + dz * dz < 9.0) { // within 3 blocks
+                    t.entityId = entity.getId();
+                    return true;
                 }
-                if (isRefreshedNameplate) continue;
-
-                tracked.add(new TrackedSeaCreature(entity.getId(), name, Scheduler.getCurrentTick(),
-                        entity.getX(), entity.getZ()));
-                PoseidonLogger.getInstance().logInfo(
-                        "Tracking: " + name + " (id=" + entity.getId() + ") -- total: " + tracked.size());
-                checkCapAlert();
-                // Only track one creature per reel-in to avoid adding other
-                // players' sea creatures that happen to be in scan range.
-                return;
             }
         }
+        return false;
+    }
+
+    /**
+     * Handles a server chat message that arrived inside the post-reel catch window. Identifies
+     * the sea creature from the catch line via {@link SeaCreatureCatches} and schedules the
+     * bind. Only the first catch message per reel is acted on (later messages — rare-drop
+     * announcements, etc. — are ignored). A matched line binds that exact creature; an unknown
+     * line falls back to the positional scan.
+     *
+     * <p><b>Double Hook.</b> Hypixel sends the double hook as its <em>own</em> line —
+     * {@code "It's a Double Hook!"} (formatted) — <em>before</em> the catch line, not merged into it.
+     * {@link SeaCreatureCatches#normalize} strips that formatting and the line contains the
+     * {@code "double hook!"} key, so it sets {@link #pendingDoubleHook} here; the flag persists through
+     * the (unchanged) window until the following creature line arrives and binds two.</p>
+     */
+    public void handleCatchMessage(String message) {
+        if (!FishingConfig.getInstance().isTrackSeaCreatures()) return;
+        if (caughtThisWindow) return; // already bound this reel
+
+        SeaCreatureCatches.CatchResult r = SeaCreatureCatches.getInstance().identify(message);
+        if (r.doubleHook() && !pendingDoubleHook) {
+            pendingDoubleHook = true; // remember even if the creature is unknown / on its own line
+            PoseidonLogger.getInstance().logInfo(
+                    "[sc] Double Hook detected — the next catch this reel counts x2");
+        }
+
+        if (!r.matched()) {
+            // Not a known catch line (or the standalone Double Hook line). Leave the window open — the
+            // real creature line may still be coming, and the proximity fallback covers unlisted ones.
+            PoseidonLogger.getInstance().logDebug(
+                    "[sc] no creature bound from: \"" + SeaCreatureCatches.normalized(message) + "\"");
+            return;
+        }
+
+        caughtThisWindow = true;
+        final int count = pendingDoubleHook ? 2 : 1;
+        PoseidonLogger.getInstance().logInfo("[sc] catch line matched: " + r.creature()
+                + (count > 1 ? " x2 (Double Hook)" : ""));
+
+        // Delay so the freshly-spawned nameplate entity exists before we scan.
+        final String target = r.creature();
+        final double bx = catchBobberX, by = catchBobberY, bz = catchBobberZ;
+        Scheduler.schedule(SCAN_DELAY_TICKS, () ->
+                scanForCatchWithRetry(bx, by, bz, target, count, SCAN_MAX_ATTEMPTS));
     }
 
     /**
@@ -533,9 +920,10 @@ public class FishingManager {
 
     /**
      * Returns true if this entity is a Hypixel Skyblock sea creature name plate —
-     * i.e. its plate text contains one of {@link #SEA_CREATURE_MARKERS}.
-     * Note: some non-sea-creature mobs may also carry these symbols. Proper
-     * discrimination will be added in a future update using the catch chat message.
+     * i.e. its plate text contains one of {@link #SEA_CREATURE_MARKERS}. Which specific
+     * creature was caught is discriminated separately via the catch chat line (see
+     * {@link SeaCreatureCatches} and {@link #handleCatchMessage}); this only decides
+     * whether an entity is a sea-creature plate at all.
      */
     private boolean isSeaCreatureDisplay(Entity entity) {
         Component name = entity.getCustomName();
@@ -767,7 +1155,7 @@ public class FishingManager {
      * Called only at cast time (IDLE→WAITING transition and after each auto-recast),
      * not every tick, so alerts fire exactly when bait is consumed.
      *
-     * Bait is identified by "bait" appearing anywhere in the display name (case-insensitive).
+     * Bait is identified by "BAIT" appearing in the item's SkyBlock id (stable across renames).
      * Count is read from the "Bait Remaining: <n>" lore line (the Fishing Bag value),
      * falling back to stack count if that line isn't present.
      */
@@ -781,7 +1169,8 @@ public class FishingManager {
 
         if (!stack.isEmpty()) {
             String dn = stack.getHoverName().getString();
-            if (dn.toLowerCase().contains("bait")) {
+            // Identify bait by its stable SkyBlock id (contains "BAIT"); count logic is unchanged.
+            if (com.playerapi.types.ItemSnapshot.from(stack).skyblockId().contains("BAIT")) {
                 newName = dn;
                 // Parse "Bait Remaining: <n>" from lore lines
                 net.minecraft.world.item.component.ItemLore lore =
@@ -839,11 +1228,13 @@ public class FishingManager {
 
     public void setActive(boolean v) {
         active = v;
+        seenRealCast = false; // always wait for a real cast after (de)activating — never bootstrap a cast
         if (!v) {
             state                 = FishingState.IDLE;
             pendingSuppressRecast = false;
             pendingStopBot        = false;
-            lastRecastTick        = -1; // disarm the idle watchdog
+            idleNoBobberSince     = -1; // disarm the recovery watchdog
+            bobberMissingTicks    = 0;
             lastReelTick          = -1; // close the catch-message window
             castTick              = -1; // reset slugfish cast timer
             guiWasOpen            = false;

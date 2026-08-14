@@ -45,7 +45,13 @@ Detects Hypixel's scheduled-reboot server message and plays a looping alarm unti
 Watches chat for the Golden Fish surface message. When it appears, Poseidon shows a golden title card, plays an alert sound, reels in any active cast, and stops the bot — handing control to you so you can catch the Golden Fish manually. Re-enable the bot afterwards to resume. The trigger phrase, title text, and sound are all configurable in the Golden Fish config tab.
 
 ### Sea Creature Tracking
-After each reel-in, Poseidon scans the area for sea-creature nameplate entities (identified by the resource pack's water/lava type icon). Tracked creatures are shown in the HUD and you get an alert when you hit the Hypixel cap of 10. A second alert fires when a creature approaches its despawn timer (~6 minutes) so you know to kill it before it vanishes. Nameplate entity refreshes (same creature, new ID) are detected by position and handled correctly — no false double-counts.
+Poseidon identifies the **exact** creature from its catch chat line (a bundled registry of 80+ creatures — including the newer Haggard, Brineling, Sprawl, Torrid, Silkbreeze, and Giant Isopod) and binds its name plate, rather than guessing by proximity; unknown/blank lines fall back to a positional scan. **Double Hook** is handled (two at once). Tracked creatures show in the HUD with an alert at the Hypixel cap of 10, and a second alert as a creature nears its despawn timer (~6 minutes). Nameplate refreshes (same creature, new entity ID) are matched by position — no false double-counts.
+
+### Bobber Not-In-Water Recovery
+If a cast lands somewhere it can't fish — on ice, a lily pad, or the water's edge — Poseidon detects the blue "not in water" particle burst around the settled bobber and automatically reels in and recasts, instead of sitting on a dead cast. On by default; toggle in the config.
+
+### Fishing Abilities
+Optionally auto-uses **Fire Veil** and **Totem of Corruption** after catches — Constant or At-Cap modes, a configurable hotbar slot (1–8) and cooldown, a name-check safety, and a HUD status row.
 
 ### Bobber Drift Detection
 If the hook attaches to a moving entity, the bobber drifts away from where it landed. Poseidon detects drift beyond a configurable horizontal threshold (after a 1-second settle period), plays an alert, reels in, and optionally recasts — keeping the bot from stalling on a moving target. Auto-recast on drift is a separate toggle from the global auto-recast setting.
@@ -121,7 +127,7 @@ The in-game update checker is Minecraft-version aware: if the latest release tar
 
 # Poseidon — Design & Documentation
 
-**Version:** 1.1.2 (config schema v13)  
+**Version:** 1.2.0 (config schema v13)  
 **Platform:** Fabric 26.1.2, Java 21  
 **Dependencies:** PlayerAPI, Fabric API, YACL v3, ModMenu (optional)  
 **Mod ID:** `poseidon`  

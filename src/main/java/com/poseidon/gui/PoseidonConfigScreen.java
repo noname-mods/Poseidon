@@ -4,8 +4,10 @@ import com.poseidon.core.FishingConfig;
 import com.poseidon.core.FishingConfig.AlarmSound;
 import com.poseidon.core.FishingConfig.TriggerLevel;
 import com.poseidon.core.PoseidonLogger;
+import com.poseidon.core.SeaCreatureCatches;
 import dev.isxander.yacl3.api.*;
 import dev.isxander.yacl3.api.controller.*;
+import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 import net.minecraft.ChatFormatting;
@@ -83,6 +85,24 @@ public class PoseidonConfigScreen {
                         .option(alarmPitchOption("Hook Stuck Pitch", cfg.getHookStuckSound(), cfg))
                         .option(alarmRepeatOption("Hook Stuck Duration", cfg.getHookStuckSound(), 2, cfg))
                         .option(alarmIntervalOption("Hook Stuck Interval", cfg.getHookStuckSound(), 10, cfg))
+
+                        .option(LabelOption.createBuilder()
+                                .line(Component.literal("§6─── Bobber Not In Water ─────────────────────────────────"))
+                                .line(Component.literal("§7Hypixel's water/lava detection sometimes fails, leaving the bobber"))
+                                .line(Component.literal("§7unable to bite — shown by a burst of blue particles at the bobber."))
+                                .build())
+
+                        .option(Option.<Boolean>createBuilder()
+                                .name(Component.literal("Recast If Not In Water"))
+                                .description(OptionDescription.of(Component.literal(
+                                        "Watches for the blue \"not in water\" particle burst around\n" +
+                                        "the bobber and automatically reels in + recasts to recover,\n" +
+                                        "instead of waiting on a bobber that will never bite.\n\n" +
+                                        "Works on land (as shown by the bug) and in water/lava when\n" +
+                                        "Hypixel's detection breaks. On by default.")))
+                                .binding(true, cfg::isNotInWaterRecastEnabled, cfg::setNotInWaterRecastEnabled)
+                                .controller(BooleanControllerBuilder::create)
+                                .build())
 
                         .option(LabelOption.createBuilder()
                                 .line(Component.literal("§6─── Slugfish Mode ───────────────────────────────────────"))
@@ -198,6 +218,9 @@ public class PoseidonConfigScreen {
                 // ── Sea Creature Tracking ─────────────────────────────────────
                 .category(buildSeaCreatureCategory(cfg))
 
+                // ── Fishing Abilities ─────────────────────────────────────────
+                .category(buildAbilitiesCategory(cfg))
+
                 // ── Bait ──────────────────────────────────────────────────────
                 .category(buildBaitCategory(cfg))
 
@@ -247,6 +270,16 @@ public class PoseidonConfigScreen {
                                 .description(OptionDescription.of(Component.literal(
                                         "Logs verbose detection output to poseidon/poseidon.log.")))
                                 .binding(false, cfg::isDebugMode, cfg::setDebugMode)
+                                .controller(BooleanControllerBuilder::create)
+                                .build())
+
+                        .option(Option.<Boolean>createBuilder()
+                                .name(Component.literal("Log Bobber Particles"))
+                                .description(OptionDescription.of(Component.literal(
+                                        "Logs the particle type ids appearing at the bobber while\n" +
+                                        "waiting, at WARN so they're visible without changing the\n" +
+                                        "log level. Used to confirm the \"not in water\" particle id.")))
+                                .binding(false, cfg::isLogBobberParticles, cfg::setLogBobberParticles)
                                 .controller(BooleanControllerBuilder::create)
                                 .build())
 
@@ -342,6 +375,76 @@ public class PoseidonConfigScreen {
                 .build();
     }
 
+    // ── Fishing abilities category ───────────────────────────────────────────
+
+    private static ConfigCategory buildAbilitiesCategory(FishingConfig cfg) {
+        return ConfigCategory.createBuilder()
+                .name(Component.literal("Fishing Abilities"))
+                .tooltip(Component.literal(
+                        "Auto-use hotbar ability items after a catch so you can fish for longer.\n" +
+                        "The camera is never moved. Both can be enabled at once — the Totem fires\n" +
+                        "first, then Fire Veil."))
+
+                .group(buildAbilityGroup("Fire Veil", cfg.getFireVeil(), cfg, 3.0, 20.0, 0.5))
+
+                .group(buildAbilityGroup("Totem of Corruption", cfg.getTotem(), cfg, 30.0, 320.0, 5.0,
+                        "§e⚠ Assumes you are looking at a valid placement spot.",
+                        "§7The mod does NOT move your camera — aim before enabling.",
+                        "§7Consumable: one Totem is used per placement (stops when you run out)."))
+
+                .build();
+    }
+
+    private static OptionGroup buildAbilityGroup(String name, FishingConfig.AbilityConfig a,
+                                                 FishingConfig cfg,
+                                                 double cdMin, double cdMax, double cdStep,
+                                                 String... noteLines) {
+        OptionGroup.Builder g = OptionGroup.createBuilder()
+                .name(Component.literal(name));
+
+        if (noteLines.length > 0) {
+            LabelOption.Builder note = LabelOption.createBuilder();
+            for (String line : noteLines) note.line(Component.literal(line));
+            g.option(note.build());
+        }
+
+        return g
+                .option(Option.<FishingConfig.AbilityMode>createBuilder()
+                        .name(Component.literal("Mode"))
+                        .description(OptionDescription.of(Component.literal(
+                                "Off — disabled.\n" +
+                                "Constant — re-use whenever the cooldown below has elapsed.\n" +
+                                "At Cap — only when the tracked sea-creature count hits the cap.")))
+                        .binding(FishingConfig.AbilityMode.OFF, () -> a.mode, v -> { a.mode = v; cfg.save(); })
+                        .controller(opt -> EnumControllerBuilder.create(opt)
+                                .enumClass(FishingConfig.AbilityMode.class))
+                        .build())
+
+                .option(Option.<Integer>createBuilder()
+                        .name(Component.literal("Hotbar Slot"))
+                        .description(OptionDescription.of(Component.literal(
+                                "Which hotbar slot (1–8) holds the item. Slot 9 is the SkyBlock\n" +
+                                "menu and can't be used. It only fires if this slot actually holds\n" +
+                                "the right item, so it won't use the wrong thing.")))
+                        .binding(a.slot, () -> a.slot, v -> { a.slot = v; cfg.save(); })
+                        .controller(opt -> IntegerSliderControllerBuilder.create(opt).range(1, 8).step(1))
+                        .build())
+
+                .option(Option.<Double>createBuilder()
+                        .name(Component.literal("Cooldown (seconds)"))
+                        .description(OptionDescription.of(Component.literal(
+                                "Minimum gap between auto-uses. Tune it below the real ability\n" +
+                                "duration to re-fire early for zero downtime.")))
+                        .binding(a.cooldownSeconds, () -> a.cooldownSeconds,
+                                v -> { a.cooldownSeconds = v; cfg.save(); })
+                        .controller(opt -> DoubleSliderControllerBuilder.create(opt)
+                                .range(cdMin, cdMax).step(cdStep)
+                                .valueFormatter(v -> Component.literal(String.format("%.1f s", v))))
+                        .build())
+
+                .build();
+    }
+
     // ── Sea creature tracking category ───────────────────────────────────────
 
     private static ConfigCategory buildSeaCreatureCategory(FishingConfig cfg) {
@@ -368,6 +471,29 @@ public class PoseidonConfigScreen {
                         .binding(12.0, cfg::getCreatureScanRadius, cfg::setCreatureScanRadius)
                         .controller(opt -> DoubleSliderControllerBuilder.create(opt)
                                 .range(5.0, 30.0).step(1.0))
+                        .build())
+
+                .option(Option.<Boolean>createBuilder()
+                        .name(Component.literal("Highlight Your Sea Creatures"))
+                        .description(OptionDescription.of(Component.literal(
+                                "Make the sea creatures YOU caught glow, so they're easy to pick out\n" +
+                                "from other players' mobs. Outline only — no box.\n\n" +
+                                "Uses the tracked creatures, so it follows the same detection: only\n" +
+                                "the ones bound to your catches glow. They stay lit after you stop\n" +
+                                "the bot, so you can go kill them.")))
+                        .binding(false, cfg::isHighlightSeaCreatures, cfg::setHighlightSeaCreatures)
+                        .controller(BooleanControllerBuilder::create)
+                        .build())
+
+                .option(Option.<java.awt.Color>createBuilder()
+                        .name(Component.literal("Highlight Color"))
+                        .description(OptionDescription.of(Component.literal(
+                                "Colour of the glow outline on your sea creatures.")))
+                        .binding(
+                                new java.awt.Color(0x55FFFF),
+                                () -> new java.awt.Color(cfg.getSeaCreatureHighlightColor()),
+                                v -> cfg.setSeaCreatureHighlightColor(v.getRGB() & 0xFFFFFF))
+                        .controller(ColorControllerBuilder::create)
                         .build())
 
                 .option(LabelOption.createBuilder()
@@ -417,7 +543,61 @@ public class PoseidonConfigScreen {
                 .option(alarmRepeatOption("Despawn Warning Duration", cfg.getDespawnWarningSound(), 5, cfg))
                 .option(alarmIntervalOption("Despawn Warning Interval", cfg.getDespawnWarningSound(), 20, cfg))
 
+                // ── Catch-line registry (debug) ───────────────────────────────
+                .option(LabelOption.createBuilder()
+                        .line(Component.literal("§6─── Catch Registry (debug) ──────────────────────────────"))
+                        .line(Component.literal("§7Identifies which sea creature you caught from the catch chat"))
+                        .line(Component.literal("§7line. Ships with a built-in list; the options below let you"))
+                        .line(Component.literal("§7live-edit it for testing."))
+                        .build())
+
+                .option(Option.<Boolean>createBuilder()
+                        .name(Component.literal("Use JSON Catch Registry (debug)"))
+                        .description(OptionDescription.of(Component.literal(
+                                "Read the catch-line registry from the editable file\n" +
+                                "config/poseidon/sea_creature_catches.json instead of the\n" +
+                                "bundled default. Seeded from the default on first enable.\n" +
+                                "Leave off for normal use.")))
+                        .binding(false, cfg::isCatchRegistryDebugJson, v -> {
+                            cfg.setCatchRegistryDebugJson(v);
+                            SeaCreatureCatches.getInstance().setDebugEnabled(v);
+                        })
+                        .controller(BooleanControllerBuilder::create)
+                        .build())
+
+                .option(ButtonOption.createBuilder()
+                        .name(Component.literal("Reload Catch Registry"))
+                        .description(OptionDescription.of(Component.literal(
+                                "Re-read the JSON file from disk, applying your live edits.\n" +
+                                "Keeps your edits. Only has an effect while the toggle above is on.")))
+                        .text(Component.literal("Reload from file"))
+                        .action((screen, opt) -> {
+                            SeaCreatureCatches.getInstance().reload();
+                            chat("§b[Poseidon] Reloaded catch registry — "
+                                    + SeaCreatureCatches.getInstance().size() + " lines.");
+                        })
+                        .build())
+
+                .option(ButtonOption.createBuilder()
+                        .name(Component.literal("Regenerate Catch Registry"))
+                        .description(OptionDescription.of(Component.literal(
+                                "Overwrite the JSON file with the bundled default, DISCARDING\n" +
+                                "your live edits. Use to reset the file to the baseline list.")))
+                        .text(Component.literal("Regenerate from source"))
+                        .action((screen, opt) -> {
+                            SeaCreatureCatches.getInstance().regenerateFromSource();
+                            chat("§b[Poseidon] Regenerated catch registry from source ("
+                                    + SeaCreatureCatches.getInstance().size() + " lines).");
+                        })
+                        .build())
+
                 .build();
+    }
+
+    /** Posts a client-side system message to chat (used by the debug registry buttons). */
+    private static void chat(String msg) {
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.player != null) mc.gui.getChat().addClientSystemMessage(Component.literal(msg));
     }
 
     // ── Triggers category ─────────────────────────────────────────────────────
@@ -577,7 +757,32 @@ public class PoseidonConfigScreen {
         return ConfigCategory.createBuilder()
                 .name(Component.literal("Stats & Alerts"))
                 .tooltip(Component.literal(
-                        "Fishing stats HUD display and server reboot alarm."))
+                        "HUD layout, fishing stats display, and server reboot alarm."))
+
+                .option(LabelOption.createBuilder()
+                        .line(Component.literal("§6─── HUD Layout ─────────────────────────────────────────"))
+                        .line(Component.literal("§7Move and scale the Poseidon HUD panel on your screen."))
+                        .build())
+
+                .option(ButtonOption.createBuilder()
+                        .name(Component.literal("Edit HUD"))
+                        .description(OptionDescription.of(Component.literal(
+                                "Opens the HUD editor: the screen darkens and the HUD panel\n" +
+                                "appears at full colour. Drag it to move, scroll over it to\n" +
+                                "resize, and press Esc to save & close.\n\n" +
+                                "The log is now its own element — drag/scale it separately in here.")))
+                        .text(Component.literal("Open HUD editor"))
+                        .action((screen, opt) -> PoseidonHudRenderer.openEditor())
+                        .build())
+
+                .option(Option.<Boolean>createBuilder()
+                        .name(Component.literal("Show Log"))
+                        .description(OptionDescription.of(Component.literal(
+                                "Show the log panel. It is now its own movable/scalable element in the HUD\n" +
+                                "editor — position it separately, or turn it off here to hide it entirely.")))
+                        .binding(true, cfg::isLogVisible, cfg::setLogVisible)
+                        .controller(BooleanControllerBuilder::create)
+                        .build())
 
                 .option(LabelOption.createBuilder()
                         .line(Component.literal("§6─── Fishing Stats HUD ──────────────────────────────────"))
@@ -589,10 +794,39 @@ public class PoseidonConfigScreen {
                 .option(Option.<Boolean>createBuilder()
                         .name(Component.literal("Show Fishing Stats in HUD"))
                         .description(OptionDescription.of(Component.literal(
-                                "Display your current fishing stats (DHC, SCC, Speed, Treasure)\n" +
-                                "in the Poseidon HUD panel. Values are pulled from the tab list\n" +
-                                "every 2 seconds and only shown when at least one stat is available.")))
+                                "Master toggle for the stats section. Each line below is shown only when it's\n" +
+                                "enabled AND that stat actually appears in the tab list — a stat missing from\n" +
+                                "the tab is hidden regardless of its toggle, and a disabled line is hidden\n" +
+                                "regardless of whether the tab shows it.")))
                         .binding(true, cfg::isFishingStatsHudVisible, cfg::setFishingStatsHudVisible)
+                        .controller(BooleanControllerBuilder::create)
+                        .build())
+
+                .option(Option.<Boolean>createBuilder()
+                        .name(Component.literal("• Double Hook Chance"))
+                        .description(OptionDescription.of(Component.literal("Show the DHC line when it's in the tab list.")))
+                        .binding(true, cfg::isStatDhcHudVisible, cfg::setStatDhcHudVisible)
+                        .controller(BooleanControllerBuilder::create)
+                        .build())
+
+                .option(Option.<Boolean>createBuilder()
+                        .name(Component.literal("• Sea Creature Chance"))
+                        .description(OptionDescription.of(Component.literal("Show the SCC line when it's in the tab list.")))
+                        .binding(true, cfg::isStatSccHudVisible, cfg::setStatSccHudVisible)
+                        .controller(BooleanControllerBuilder::create)
+                        .build())
+
+                .option(Option.<Boolean>createBuilder()
+                        .name(Component.literal("• Fishing Speed"))
+                        .description(OptionDescription.of(Component.literal("Show the Speed line when it's in the tab list.")))
+                        .binding(true, cfg::isStatSpeedHudVisible, cfg::setStatSpeedHudVisible)
+                        .controller(BooleanControllerBuilder::create)
+                        .build())
+
+                .option(Option.<Boolean>createBuilder()
+                        .name(Component.literal("• Treasure Chance"))
+                        .description(OptionDescription.of(Component.literal("Show the Treasure line when it's in the tab list.")))
+                        .binding(true, cfg::isStatTreasureHudVisible, cfg::setStatTreasureHudVisible)
                         .controller(BooleanControllerBuilder::create)
                         .build())
 
