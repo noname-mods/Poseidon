@@ -1,8 +1,8 @@
 # Poseidon — Design & Documentation
 
-**Version:** 1.2.0 (config schema v18)
-**Platform:** Fabric 26.1.2, Java 21
-**Dependencies:** PlayerAPI, Fabric API, YACL v3, ModMenu (optional)
+**Version:** 1.2.1 (config schema v18)
+**Platform:** Fabric 26.2, Java 25
+**Dependencies:** PlayerAPI 2.0.0+, Fabric API, ModMenu (optional)
 **Mod ID:** `poseidon`
 **Entry point:** `com.poseidon.PoseidonMod`
 **Config file:** `<game_dir>/config/poseidon/config.json`
@@ -19,7 +19,7 @@
 5. [FishingManager — Core State Machine](#5-fishingmanager--core-state-machine)
 6. [FishingConfig — Configuration](#6-fishingconfig--configuration)
 7. [PoseidonHudRenderer — HUD Overlay](#7-poseidonhudrenderer--hud-overlay)
-8. [PoseidonConfigScreen — YACL Config UI](#8-poseidonconfigscreen--yacl-config-ui)
+8. [PoseidonConfigScreen — Config UI](#8-poseidonconfigscreen--config-ui)
 9. [MouseClickMixin — Right-click Guard](#9-mouseclickmixin--right-click-guard)
 10. [PoseidonLogger — Logging](#10-poseidonlogger--logging)
 11. [PoseidonMod — Entry Point & Event Wiring](#11-poseidonmod--entry-point--event-wiring)
@@ -105,7 +105,7 @@ com.poseidon
 │   └── PoseidonLogger.java       — singleton logger, in-memory ring buffer + file output
 ├── gui/
 │   ├── PoseidonHudRenderer.java  — HUD overlay drawn each frame
-│   └── PoseidonConfigScreen.java — YACL config screen builder
+│   └── PoseidonConfigScreen.java — config screen builder
 ├── mixin/
 │   └── MouseClickMixin.java      — blocks right-click during active cast
 └── modmenu/
@@ -321,7 +321,7 @@ Appears directly below the main panel when `PoseidonLogger` has entries. Shows t
 
 ---
 
-## 8. PoseidonConfigScreen — YACL Config UI
+## 8. PoseidonConfigScreen — Config UI
 
 `com.poseidon.gui.PoseidonConfigScreen`
 
@@ -815,7 +815,7 @@ All registered under the `Poseidon Controls` category in Minecraft's keybind set
 |-----|---------|--------|
 | Y | Y | **Toggle Fishing** — starts the bot (if HUD is open) or stops it |
 | H | H | **Toggle HUD** — shows/hides the HUD overlay; also stops the bot if HUD is closed while active |
-| (none) | Unbound | **Open Config** — opens the YACL config screen directly |
+| (none) | Unbound | **Open Config** — opens the config screen directly |
 
 **Start workflow:** The Y key will refuse to start the bot if the HUD is not visible. The intended flow is: H to open HUD, then Y to start fishing.
 
@@ -823,7 +823,7 @@ All registered under the `Poseidon Controls` category in Minecraft's keybind set
 
 | Command | Effect |
 |---------|--------|
-| `/poseidon` | Opens the YACL configuration screen |
+| `/poseidon` | Opens the configuration screen |
 
 The command uses a tick-delay trick (`openConfigNextTick`) to avoid a race where the config screen tries to open while the chat screen is still closing.
 
@@ -984,7 +984,7 @@ On servers like Hypixel, the server pushes a custom command tree to the client t
 
 ### Why Only 5 Trigger Slots?
 
-Trigger slots are serialized as a fixed-length list in the config JSON and the YACL UI generates one group per slot. A fixed count of 5 was chosen because Hypixel Skyblock fishing typically needs only 2–3 practical triggers (e.g., "sea creature appeared", "rare creature appeared", "stop on special drop"). Five slots gives margin without making the config screen unwieldy. The list is not hard-limited internally — `getTriggerLevels()` returns whatever the list contains — but the UI and defaults always produce exactly 5.
+Trigger slots are serialized as a fixed-length list in the config JSON and the config UI generates one group per slot. A fixed count of 5 was chosen because Hypixel Skyblock fishing typically needs only 2–3 practical triggers (e.g., "sea creature appeared", "rare creature appeared", "stop on special drop"). Five slots gives margin without making the config screen unwieldy. The list is not hard-limited internally — `getTriggerLevels()` returns whatever the list contains — but the UI and defaults always produce exactly 5.
 
 ### Why is `shouldBlockRightClick()` Only True for WAITING and BITING?
 

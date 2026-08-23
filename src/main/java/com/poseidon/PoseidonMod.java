@@ -106,7 +106,7 @@ public class PoseidonMod implements ClientModInitializer {
         if (openConfigNextTick) {
             openConfigNextTick = false;
             try {
-                Minecraft.getInstance().setScreen(PoseidonConfigScreen.create(null));
+                Minecraft.getInstance().gui.setScreen(PoseidonConfigScreen.create(null));
             } catch (Exception e) {
                 PoseidonLogger.getInstance().logError("Failed to open config screen: " + e.getMessage());
             }
@@ -266,9 +266,9 @@ public class PoseidonMod implements ClientModInitializer {
         // Drive the MC HUD directly so that colour/style codes in the text are
         // rendered properly. DisplayActions.showTitle() wraps the string in
         // Component.literal() which treats § as a literal character, not a colour code.
-        mc.gui.setTitle(parseLegacyText(raw));
-        mc.gui.setSubtitle(Component.literal(""));
-        mc.gui.setTimes(10, 70, 20); // fade-in, hold, fade-out ticks
+        mc.gui.hud.setTitle(parseLegacyText(raw));
+        mc.gui.hud.setSubtitle(Component.literal(""));
+        mc.gui.hud.setTimes(10, 70, 20); // fade-in, hold, fade-out ticks
     }
 
     private static void showGoldenFishTitle(FishingConfig cfg) {
@@ -278,9 +278,9 @@ public class PoseidonMod implements ClientModInitializer {
         Minecraft mc = Minecraft.getInstance();
         if (mc == null || mc.gui == null) return;
 
-        mc.gui.setTitle(parseLegacyText(raw));
-        mc.gui.setSubtitle(parseLegacyText("§eBot stopped — catch it, then re-enable"));
-        mc.gui.setTimes(10, 100, 20); // longer hold so the hand-off is unmissable
+        mc.gui.hud.setTitle(parseLegacyText(raw));
+        mc.gui.hud.setSubtitle(parseLegacyText("§eBot stopped — catch it, then re-enable"));
+        mc.gui.hud.setTimes(10, 100, 20); // longer hold so the hand-off is unmissable
     }
 
     /**
@@ -321,10 +321,6 @@ public class PoseidonMod implements ClientModInitializer {
                 if (fmt == ChatFormatting.RESET) {
                     activeColor = null;
                     bold = italic = underline = strikethrough = obfuscated = false;
-                } else if (fmt.isColor()) {
-                    // Colour resets style flags (vanilla behaviour)
-                    activeColor = fmt;
-                    bold = italic = underline = strikethrough = obfuscated = false;
                 } else {
                     switch (fmt) {
                         case BOLD          -> bold          = true;
@@ -332,7 +328,12 @@ public class PoseidonMod implements ClientModInitializer {
                         case UNDERLINE     -> underline     = true;
                         case STRIKETHROUGH -> strikethrough = true;
                         case OBFUSCATED    -> obfuscated    = true;
-                        default -> {}
+                        // Any other code is a colour (26.2 removed ChatFormatting.isColor()).
+                        // Colour resets style flags (vanilla behaviour).
+                        default -> {
+                            activeColor = fmt;
+                            bold = italic = underline = strikethrough = obfuscated = false;
+                        }
                     }
                 }
             }
@@ -387,7 +388,7 @@ public class PoseidonMod implements ClientModInitializer {
         }
 
         if (keyOpenConfig.consumeClick()) {
-            Minecraft.getInstance().setScreen(PoseidonConfigScreen.create(null));
+            Minecraft.getInstance().gui.setScreen(PoseidonConfigScreen.create(null));
         }
     }
 

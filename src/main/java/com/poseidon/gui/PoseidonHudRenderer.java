@@ -6,6 +6,9 @@ import com.poseidon.core.FishingManager;
 import com.poseidon.core.FishingState;
 import com.poseidon.core.PoseidonLogger;
 import com.poseidon.core.RebootAlertManager;
+import com.playerapi.config.theme.ConfigStyle;
+import com.playerapi.config.theme.Surface;
+import com.playerapi.config.theme.ThemeRenderer;
 import com.playerapi.hud.HudElement;
 import com.playerapi.hud.HudManager;
 import com.playerapi.hud.HudTransform;
@@ -13,6 +16,8 @@ import net.minecraft.client.DeltaTracker;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
+import net.minecraft.client.renderer.RenderPipelines;
+import net.minecraft.resources.Identifier;
 
 import java.util.List;
 
@@ -44,6 +49,82 @@ public class PoseidonHudRenderer {
     private static int lastLogHeight = HEADER + 1 + 5 * 9 + 4;
     /** Max log lines shown in the panel. */
     private static final int MAX_LOG = 5;
+
+    // ── HUD style (Custom / Toned Down / Flat) — a familiar dark HUD with an ocean identity ─────
+    /** Dark-navy panel with a cyan frame (Custom) + a subtle transparent variant (Toned Down). */
+    private static final Surface PANEL       = Surface.nineSlice(tex("hud_panel"), 64, 11);
+    private static final Surface PANEL_TONED = Surface.nineSlice(tex("hud_panel_toned"), 64, 11);
+    private static final Surface HEADER_BAND = Surface.nineSlice(tex("hud_header"), 32, 8);
+    private static final Identifier EMBLEM   = tex("emblem_trident");
+    private static final int EMBLEM_SZ = 11, EMBLEM_TEX = 16;
+
+    private static Identifier tex(String name) {
+        return Identifier.fromNamespaceAndPath("playerapi", "textures/config/poseidon/" + name + ".png");
+    }
+
+    private static ConfigStyle style()   { return FishingConfig.getInstance().getHudStyle(); }
+    private static boolean isCustom()     { return style() == ConfigStyle.CUSTOM; }
+    private static boolean isTextured()   { return style() != ConfigStyle.FLAT; }
+
+    /** Panel background in the current style: textured (Custom/Toned) or the classic colour fill. */
+    private static void drawBg(GuiGraphicsExtractor ctx, int x, int y, int w, int h, int flatColor) {
+        switch (style()) {
+            case CUSTOM     -> ThemeRenderer.surface(ctx, PANEL, flatColor, x, y, w, h);
+            case TONED_DOWN -> ThemeRenderer.surface(ctx, PANEL_TONED, flatColor, x, y, w, h);
+            case FLAT       -> fill(ctx, x, y, w, h, flatColor);
+        }
+    }
+
+    /** Left accent stripe — Flat only. Textured styles show state as a header dot instead (cleaner). */
+    private static void drawAccent(GuiGraphicsExtractor ctx, int x, int y, int h, int color) {
+        if (isTextured()) return;
+        fill(ctx, x, y, ACCENT, h, color);
+    }
+
+    /** Frame inset: content is pushed in by this many px on textured panels so text clears the frame bevel. */
+    private static int fi() { return isTextured() ? 6 : 0; }
+
+    /** Header separator (height {@code h}): a navy band + cyan underline (Custom) or the classic tint. */
+    private static void drawHeader(GuiGraphicsExtractor ctx, int x, int y, int w, int h) {
+        int f = fi(), hx = x + ACCENT + f, hw = w - ACCENT * 2 - f * 2;
+        if (isCustom()) {
+            ThemeRenderer.surface(ctx, HEADER_BAND, 0x18FFFFFF, hx, y + f, hw, h - f);
+            fill(ctx, hx, y + h, hw, 1, 0x9955C8E0); // cyan underline
+        } else {
+            fill(ctx, x + ACCENT, y, w - ACCENT, HEADER, 0x18FFFFFF);
+            fill(ctx, x + ACCENT, y + HEADER, w - ACCENT, 1, 0x30FFFFFF);
+        }
+    }
+
+    // ── Style-aware text (textured = light-on-navy glass; Flat = classic) ────────
+    private static boolean sh()          { return isTextured(); } // shadow for readability on the glass
+    private static int  labelCol()       { return isTextured() ? 0xFFA9C4D6 : LABEL_COL; } // light steel
+    private static int  titleCol()       { return isTextured() ? 0xFF8FDcF2 : 0xFFAAAAAA; } // cyan
+    /** Neutral value colour brightens on the glass; status colours pass through. */
+    private static int  mapVal(int c)    { return (isTextured() && c == VALUE_COL) ? 0xFFF1F7FB : c; }
+
+    /**
+     * Draws the state indicator top-right: on the glass a small colour dot + neutral text (a clean
+     * badge, not a loud coloured word); on Flat the classic coloured word.
+     */
+    private static void drawState(GuiGraphicsExtractor ctx, Font tr, int rightX, int y, String label, int stateCol) {
+        int tw = tr.width(label);
+        if (isTextured()) {
+            int padX = 4, h = tr.lineHeight + 1, w = tw + padX * 2, x = rightX - w, by = y - 1;
+            fill(ctx, x + 1, by, w - 2, h, stateCol);          // pill body
+            fill(ctx, x, by + 1, 1, h - 2, stateCol);          // fake-rounded left edge
+            fill(ctx, x + w - 1, by + 1, 1, h - 2, stateCol);  // right edge
+            ctx.text(tr, label, x + padX, y, 0xFFFFFFFF, false);
+        } else {
+            ctx.text(tr, label, rightX - tw, y, stateCol, false);
+        }
+    }
+
+    /** The trident identity emblem, drawn at {@code (x,y)} (caller places it at the header's left). */
+    private static void drawEmblem(GuiGraphicsExtractor ctx, int x, int y) {
+        ctx.blit(RenderPipelines.GUI_TEXTURED, EMBLEM, x, y,
+                0f, 0f, EMBLEM_SZ, EMBLEM_SZ, EMBLEM_TEX, EMBLEM_TEX, EMBLEM_TEX, EMBLEM_TEX);
+    }
 
     private PoseidonHudRenderer() {}
 
@@ -157,25 +238,32 @@ public class PoseidonHudRenderer {
                 + (trackSC ? (area.isBlank() ? 1 : 2) : 0)               // [Area,] SC
                 + abilityRows                                             // Fire Veil / Totem
                 + statRows;                                               // DHC/SCC/Speed/Treasure (individually)
-        int ph = HEADER + 1 + PAD + rows * LINE + PAD;
+        int fi = fi();
+        int hdr = HEADER + fi;                              // taller header on textured (room below the frame)
+        int ph = hdr + 1 + PAD + rows * LINE + PAD + fi;    // + bottom-frame room
         lastPanelHeight = ph; // cache for the editor's outline/hit-box
 
         // Accent stripe: flash red when reboot is imminent
         int accentCol = rebootAlert ? 0xFFFF4444 : stateCol;
 
-        fill(ctx, PX, PY, PW, ph, BG);
-        fill(ctx, PX, PY, ACCENT, ph, accentCol);
-        fill(ctx, PX + ACCENT, PY, PW - ACCENT, HEADER, 0x18FFFFFF);
-        fill(ctx, PX + ACCENT, PY + HEADER, PW - ACCENT, 1, 0x30FFFFFF);
+        drawBg(ctx, PX, PY, PW, ph, BG);
+        drawAccent(ctx, PX, PY, ph, accentCol);
+        drawHeader(ctx, PX, PY, PW, hdr);
 
         Font tr = client.font;
-        ctx.text(tr, "Poseidon", PX + LX_OFF, PY + 3, 0xFFAAAAAA, false);
+        int hy = PY + fi + 3;
+        int titleX = PX + LX_OFF + fi;
+        if (isCustom()) {
+            drawEmblem(ctx, PX + ACCENT + fi + 3, PY + fi + 1);
+            titleX += EMBLEM_SZ + 3; // make room for the trident
+        }
+        ctx.text(tr, "Poseidon", titleX, hy, titleCol(), sh());
         String stateLabel = active ? state.name() : "OFF";
-        ctx.text(tr, stateLabel, PX + PW - tr.width(stateLabel) - 5, PY + 3, stateCol, false);
+        drawState(ctx, tr, PX + PW - 6 - fi, hy, stateLabel, rebootAlert ? 0xFFFF5555 : stateCol);
 
-        int y  = PY + HEADER + 1 + PAD;
-        int lx = PX + LX_OFF;
-        int vx = PX + VX_OFF;
+        int y  = PY + hdr + 1 + PAD;
+        int lx = PX + LX_OFF + fi;
+        int vx = PX + VX_OFF + fi;
 
         // Reboot warning — shown first so it's impossible to miss
         if (rebootAlert) {
@@ -272,22 +360,23 @@ public class PoseidonHudRenderer {
 
         int start = Math.max(0, src.size() - MAX_LOG);
         int shown = src.size() - start;
-        int logH  = HEADER + 1 + shown * 9 + 4;
+        int fi = fi();
+        int hdr = HEADER + fi;
+        int logH  = hdr + 1 + shown * 9 + 4 + fi;
         lastLogHeight = logH;
 
-        fill(ctx, 0,      0, LOG_PW,          logH,   LOG_BG);
-        fill(ctx, 0,      0, ACCENT,          logH,   0x88888888);
-        fill(ctx, ACCENT, 0, LOG_PW - ACCENT, HEADER, 0x10FFFFFF);
-        fill(ctx, ACCENT, HEADER, LOG_PW - ACCENT, 1, 0x20FFFFFF);
-        ctx.text(tr, "LOG", LX_OFF, 3, 0xFF555555, false);
+        drawBg(ctx, 0, 0, LOG_PW, logH, LOG_BG);
+        drawAccent(ctx, 0, 0, logH, 0x88888888);
+        drawHeader(ctx, 0, 0, LOG_PW, hdr);
+        ctx.text(tr, "LOG", LX_OFF + fi + 9, fi + 3, isTextured() ? titleCol() : 0xFF555555, sh());
 
-        int ly = HEADER + 1 + 2;
+        int ly = hdr + 1 + 2;
         for (int i = start; i < src.size(); i++) {
             String line = src.get(i);
             int msgStart = line.indexOf("] ");
             if (msgStart >= 0) line = line.substring(msgStart + 2);
             if (line.length() > 50) line = line.substring(0, 50) + "…";
-            ctx.text(tr, line, LX_OFF, ly, 0xFF999999, false);
+            ctx.text(tr, line, LX_OFF + fi, ly, isTextured() ? 0xFFB9CEDC : 0xFF999999, sh());
             ly += 9;
         }
     }
@@ -299,8 +388,8 @@ public class PoseidonHudRenderer {
     private static void kv(GuiGraphicsExtractor ctx, Font tr,
                             int lx, int vx, int y,
                             String label, String value, int valueCol) {
-        ctx.text(tr, label, lx, y, LABEL_COL, false);
-        ctx.text(tr, value, vx, y, valueCol, false);
+        ctx.text(tr, label, lx, y, labelCol(), sh());
+        ctx.text(tr, value, vx, y, mapVal(valueCol), sh());
     }
 
     /** Renders one ability status row: green "ON Ns" while active, else cooldown seconds or "Ready". */

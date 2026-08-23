@@ -5,6 +5,19 @@ import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonObject;
 import com.playerapi.SoundActions;
+import com.playerapi.config.annotations.Button;
+import com.playerapi.config.annotations.ColorPicker;
+import com.playerapi.config.annotations.ConfigAccordion;
+import com.playerapi.config.annotations.ConfigLayout;
+import com.playerapi.config.annotations.ConfigList;
+import com.playerapi.config.annotations.ConfigOption;
+import com.playerapi.config.annotations.Dropdown;
+import com.playerapi.config.annotations.OnChange;
+import com.playerapi.config.annotations.ShowIf;
+import com.playerapi.config.annotations.Slider;
+import com.playerapi.config.annotations.TextField;
+import com.playerapi.config.annotations.Toggle;
+import com.playerapi.config.theme.ConfigStyle;
 import net.fabricmc.loader.api.FabricLoader;
 
 import java.io.Reader;
@@ -14,6 +27,18 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 
+@ConfigLayout({
+        @ConfigLayout.Category(name = "Fishing"),
+        @ConfigLayout.Category(name = "Sea Creatures"),
+        @ConfigLayout.Category(name = "Hook & Water"),
+        @ConfigLayout.Category(name = "Abilities"),
+        @ConfigLayout.Category(name = "Triggers"),
+        @ConfigLayout.Category(name = "Bait"),
+        @ConfigLayout.Category(name = "Alerts"),
+        @ConfigLayout.Category(name = "HUD"),
+        @ConfigLayout.Category(name = "Updates"),
+        @ConfigLayout.Category(name = "Developer", color = 0xFFFF5555),
+})
 public class FishingConfig {
 
     // ── Known islands — must be first; INSTANCE init calls defaultCapsByArea() ─
@@ -54,10 +79,16 @@ public class FishingConfig {
     private int configVersion = CURRENT_VERSION;
 
     // ── Detection ─────────────────────────────────────────────────────────────
+    @ConfigOption(category = "Fishing", name = "Detection Radius", desc = "Radius around the bobber to look for the !!! bite signal.")
+    @Slider(min = 1.0, max = 8.0, step = 0.5)
     private double detectionRadius = 4.0;
 
     // ── Reaction delay ────────────────────────────────────────────────────────
+    @ConfigOption(category = "Fishing", name = "Reaction Delay Min (ms)", desc = "Minimum human-like delay before reeling after a bite.")
+    @Slider(min = 0, max = 2000, step = 10)
     private int reactionDelayMinMs = 180;
+    @ConfigOption(category = "Fishing", name = "Reaction Delay Max (ms)", desc = "Maximum human-like delay before reeling after a bite.")
+    @Slider(min = 0, max = 2000, step = 10)
     private int reactionDelayMaxMs = 700;
 
     // ── Auto recast ───────────────────────────────────────────────────────────
@@ -66,10 +97,20 @@ public class FishingConfig {
      * Individual triggers can suppress a recast via their dontRecast flag.
      * Set to false to never auto-recast (manual casts only).
      */
+    @ConfigOption(category = "Fishing", name = "Auto Recast", desc = "Automatically recast after each catch (triggers can suppress it).")
+    @Toggle
     private boolean autoRecast          = true;
+    @ConfigOption(category = "Fishing", name = "Recast Delay Min (ms)", desc = "Minimum delay before an auto-recast.")
+    @Slider(min = 0, max = 3000, step = 50)
+    @ShowIf("autoRecast")
     private int     recastDelayMinMs    = 200;
+    @ConfigOption(category = "Fishing", name = "Recast Delay Max (ms)", desc = "Maximum delay before an auto-recast.")
+    @Slider(min = 0, max = 3000, step = 50)
+    @ShowIf("autoRecast")
     private int     recastDelayMaxMs    = 600;
     /** Base ms between each ability step (switch to slot → use → switch back) — a human-ish pace. */
+    @ConfigOption(category = "Abilities", name = "Ability Action Delay (ms)", desc = "Pace between ability steps (switch → use → switch back).")
+    @Slider(min = 100, max = 1000, step = 50)
     private int     abilityActionDelayMs = 400;
     /**
      * Ticks to wait after a reel-in before deciding whether to recast.
@@ -77,15 +118,25 @@ public class FishingConfig {
      * Low-ping players can reduce this; high-ping players should increase it.
      * Default 10 ticks (500 ms) covers most connections up to ~300 ms ping.
      */
+    @ConfigOption(category = "Fishing", name = "Recast Decision Window (ticks)", desc = "Ticks to wait after reeling before recasting (lets triggers arrive). 20 = 1s.")
+    @Slider(min = 1, max = 40, step = 1)
     private int     recastDecisionTicks = 10;
 
     // ── Bite alert sound ──────────────────────────────────────────────────────
+    @ConfigOption(category = "Triggers", name = "Bite Alert Sound", desc = "Plays on a bite (duration 0 = silent/off).")
+    @ConfigAccordion(expanded = false)
     private AlarmSound biteAlertSound = AlarmSound.defaultBite();
 
     // ── Sea creature tracking ──────────────────────────────────────────────────
+    @ConfigOption(category = "Sea Creatures", name = "Track Sea Creatures", desc = "Track sea creatures that spawn after your catches.")
+    @Toggle
     private boolean trackSeaCreatures  = true;
     /** Radius around the bobber to scan for new sea creature name plates. */
+    @ConfigOption(category = "Sea Creatures", name = "Creature Scan Radius", desc = "Radius around the bobber to scan for new sea-creature name plates.")
+    @Slider(min = 4.0, max = 24.0, step = 1.0)
     private double  creatureScanRadius = 12.0;
+    @ConfigOption(category = "Sea Creatures", name = "Cap Reached Sound", desc = "Plays when the sea-creature cap is reached.")
+    @ConfigAccordion(expanded = false)
     private AlarmSound seaCreatureCapSound = new AlarmSound(
             "minecraft:entity.player.levelup", 1.0, 0.8, 10, 20);
     /**
@@ -93,20 +144,34 @@ public class FishingConfig {
      * live-editable {@code config/poseidon/sea_creature_catches.json} instead of the
      * bundled default. Off for normal use. See {@link SeaCreatureCatches}.
      */
+    @ConfigOption(category = "Developer", name = "Catch Registry Debug JSON", desc = "Read the sea-creature catch registry from the live-editable JSON instead of the bundled default.")
+    @Toggle
     private boolean catchRegistryDebugJson = false;
 
     /**
      * Glow the sea creatures you caught, so they stand out from other players' mobs.
      * Client-side outline only (no box) — see the glow mixins.
      */
+    @ConfigOption(category = "Sea Creatures", name = "Highlight Sea Creatures", desc = "Glow the sea creatures you caught (client-side outline).")
+    @Toggle
     private boolean highlightSeaCreatures = false;
     /** Glow colour for your tracked sea creatures, as packed RGB (no alpha). */
+    @ConfigOption(category = "Sea Creatures", name = "Highlight Color", desc = "Glow colour for your tracked sea creatures.")
+    @ColorPicker
+    @ShowIf("highlightSeaCreatures")
     private int     seaCreatureHighlightColor = 0x55FFFF;
 
     // ── Despawn warning ────────────────────────────────────────────────────────
     /** Fire a warning alert when a tracked creature has been alive this many minutes. */
+    @ConfigOption(category = "Sea Creatures", name = "Despawn Warning", desc = "Warn when a tracked creature has been alive too long.")
+    @Toggle
     private boolean    despawnWarningEnabled = true;
+    @ConfigOption(category = "Sea Creatures", name = "Despawn Warning (minutes)", desc = "Minutes alive before the despawn warning fires.")
+    @Slider(min = 1, max = 30, step = 1)
+    @ShowIf("despawnWarningEnabled")
     private int        despawnWarningMinutes = 5;
+    @ConfigOption(category = "Sea Creatures", name = "Despawn Warning Sound", desc = "Sound for the despawn warning.")
+    @ConfigAccordion(expanded = false)
     private AlarmSound despawnWarningSound   = new AlarmSound(
             "minecraft:block.bell.use", 1.0, 0.8, 5, 20);
 
@@ -117,15 +182,25 @@ public class FishingConfig {
      * the hook has attached to a moving mob rather than landing in water.
      * The rod is automatically reeled in and recast.
      */
+    @ConfigOption(category = "Hook & Water", name = "Hook-Stuck Detection", desc = "Detect the hook sticking to a moving mob (bobber drifts horizontally).")
+    @Toggle
     private boolean    hookStuckDetectionEnabled = true;
     /** Horizontal drift threshold in blocks. Normal bobbing is < 0.2 blocks. */
+    @ConfigOption(category = "Hook & Water", name = "Hook-Stuck Max Drift", desc = "Horizontal drift (blocks) that counts as stuck. Normal bobbing < 0.2.")
+    @Slider(min = 0.5, max = 5.0, step = 0.1)
+    @ShowIf("hookStuckDetectionEnabled")
     private double     hookStuckMaxDistance      = 1.5;
     /**
      * When true, automatically reel in and recast after drift is detected,
      * independent of the global {@link #autoRecast} setting.
      * The alert sound still plays regardless of this flag.
      */
+    @ConfigOption(category = "Hook & Water", name = "Hook-Stuck Auto Recast", desc = "Reel in + recast when a stuck hook is detected (independent of Auto Recast).")
+    @Toggle
+    @ShowIf("hookStuckDetectionEnabled")
     private boolean    hookStuckAutoRecast       = true;
+    @ConfigOption(category = "Hook & Water", name = "Hook-Stuck Sound", desc = "Sound played when a stuck hook is detected.")
+    @ConfigAccordion(expanded = false)
     private AlarmSound hookStuckSound            = new AlarmSound(
             "minecraft:entity.villager.no", 1.0, 1.2, 2, 10);
 
@@ -135,40 +210,75 @@ public class FishingConfig {
      * (Hypixel's in-water/lava detection sometimes fails, so the bobber never bites) and force-recasts
      * to recover. See {@link com.poseidon.core.ParticleWatch} + the FishingManager check.
      */
+    @ConfigOption(category = "Hook & Water", name = "\"Not in Water\" Recast", desc = "Force-recast when the bobber lands out of water/lava (particle burst detected).")
+    @Toggle
     private boolean notInWaterRecastEnabled = true;
     /**
      * Debug: log the distinct particle type ids seen around the bobber while waiting. Used to confirm
      * exactly which particle Hypixel spawns for the "not in water" state so the trigger set is precise.
      */
+    @ConfigOption(category = "Developer", name = "Log Bobber Particles", desc = "Log particle type ids seen around the bobber (to tune 'not in water' detection).")
+    @Toggle
     private boolean logBobberParticles = false;
 
     // ── Chat triggers ─────────────────────────────────────────────────────────
     /** Ordered list of trigger levels. First match wins. */
+    @ConfigList(category = "Triggers", nameField = "name", itemLabel = "Trigger",
+            addLabel = "+ Add Trigger", removeLabel = "× Remove trigger")
     private List<TriggerLevel> triggerLevels = defaultTriggerLevels();
 
     // ── Update checker ────────────────────────────────────────────────────────
+    @ConfigOption(category = "Updates", name = "Update Check", desc = "On world join, check GitHub for a newer Poseidon release.")
+    @Toggle
     private boolean updateCheckEnabled = true;
 
     // ── Bait monitoring ──────────────────────────────────────────────────────────
+    @ConfigOption(category = "HUD", name = "Bait HUD Line", desc = "Show the bait count/name line on the HUD.")
+    @Toggle
     private boolean    baitHudVisible       = true;
+    @ConfigOption(category = "Bait", name = "Low Bait Threshold", desc = "Alert when bait remaining drops to this count.")
+    @Slider(min = 1, max = 64, step = 1)
     private int        baitLowThreshold     = 5;
+    @ConfigOption(category = "Bait", name = "Low Bait Sound", desc = "Sound when bait runs low.")
+    @ConfigAccordion(expanded = false)
     private AlarmSound baitLowAlertSound    = new AlarmSound(
             "minecraft:entity.experience_orb.pickup", 1.0, 0.5, 3, 20);
+    @ConfigOption(category = "Bait", name = "Bait Switch Sound", desc = "Sound when the bait type changes.")
+    @ConfigAccordion(expanded = false)
     private AlarmSound baitSwitchAlertSound = new AlarmSound(
             "minecraft:block.bell.use", 1.0, 0.8, 2, 20);
 
     // -- Reboot alert ------------------------------------------------------
+    @ConfigOption(category = "Alerts", name = "Reboot Alert", desc = "Play an alarm on the Hypixel server-reboot warning.")
+    @Toggle
     private boolean    rebootAlertEnabled = true;
+    @ConfigOption(category = "Alerts", name = "Reboot Alert Sound", desc = "Sound looped on the reboot warning.")
+    @ConfigAccordion(expanded = false)
     private AlarmSound rebootAlertSound   = new AlarmSound(
             "minecraft:block.bell.use", 1.0, 1.0, 300, 40);
 
+    /** Live-HUD style: Custom textured / Toned-down transparent / Flat (classic). */
+    @ConfigOption(category = "HUD", name = "HUD Style", desc = "Live HUD look: Custom (ocean panel), Toned (transparent), or Flat (classic).")
+    @Dropdown
+    private ConfigStyle hudStyle = ConfigStyle.CUSTOM;
+
     // -- Fishing stats HUD ------------------------------------------------
     /** Master toggle for the whole stats section. */
+    @ConfigOption(category = "HUD", name = "Fishing Stats", desc = "Show the fishing-stats section on the HUD.")
+    @Toggle
     private boolean fishingStatsHudVisible = true;
     /** Per-line toggles. A line shows only when its toggle is on AND the stat appears in the tab list. */
+    @ConfigOption(category = "HUD", name = "Stat: Speed", desc = "Show the Speed stat line (if present in tab).")
+    @Toggle @ShowIf("fishingStatsHudVisible")
     private boolean statSpeedHudVisible    = true;
+    @ConfigOption(category = "HUD", name = "Stat: DHC", desc = "Show the Double-Hook Chance line (if present in tab).")
+    @Toggle @ShowIf("fishingStatsHudVisible")
     private boolean statDhcHudVisible      = true;
+    @ConfigOption(category = "HUD", name = "Stat: SCC", desc = "Show the Sea-Creature Chance line (if present in tab).")
+    @Toggle @ShowIf("fishingStatsHudVisible")
     private boolean statSccHudVisible      = true;
+    @ConfigOption(category = "HUD", name = "Stat: Treasure", desc = "Show the Treasure Chance line (if present in tab).")
+    @Toggle @ShowIf("fishingStatsHudVisible")
     private boolean statTreasureHudVisible = true;
 
     // ── HUD layout (position + scale, edited via the shared HUD editor) ─────────
@@ -179,7 +289,14 @@ public class FishingConfig {
 
     // ── Log panel (its own movable/scalable HUD element) ────────────────────────
     /** Whether the log panel is shown at all. */
+    @ConfigOption(category = "HUD", name = "Show Log", desc = "Show the scrolling log panel.")
+    @Toggle
     private boolean logVisible  = true;
+    /** Opens the shared HUD editor to move/scale the panels. */
+    @ConfigOption(category = "HUD", name = "Edit HUD Position", desc = "Move/scale the HUD + log panels.")
+    @Button(text = "Open HUD editor")
+    public transient final Runnable editHudAction =
+            () -> com.poseidon.gui.PoseidonHudRenderer.openEditor();
     private float   logHudX     = 4f;
     private float   logHudY     = 140f;
     private float   logHudScale = 1.0f;
@@ -190,11 +307,16 @@ public class FishingConfig {
      * has elapsed since the cast (21 s normally, 11 s with the Slug Pet).
      * Should only be enabled while actively farming the Slugfish trophy fish.
      */
+    @ConfigOption(category = "Fishing", name = "Slugfish Mode", desc = "Ignore reel signals until the slugfish timer elapses (only while farming Slugfish).")
+    @Toggle
     private boolean slugfishMode = false;
     /**
      * Halves the slugfish timer to 11 s (assumes a level-100 Slug Pet is
      * equipped; Poseidon does not verify the pet for you).
      */
+    @ConfigOption(category = "Fishing", name = "Slug Pet", desc = "Halve the slugfish timer to 11s (assumes a level-100 Slug Pet).")
+    @Toggle
+    @ShowIf("slugfishMode")
     private boolean slugPet = false;
 
     // ── Golden Fish alert ───────────────────────────────────────────────────────
@@ -209,6 +331,8 @@ public class FishingConfig {
      * post-reel catch window because the Golden Fish announcement can arrive at
      * any point while fishing, not just right after a reel-in.</p>
      */
+    @ConfigOption(category = "Triggers", name = "Golden Fish Alert", desc = "Watch chat for the Golden Fish; on match show a title, stop the bot, and reel in.")
+    @Toggle
     private boolean goldenFishAlertEnabled = false;
     /**
      * Comma-separated substrings identifying the Golden Fish chat message
@@ -217,10 +341,18 @@ public class FishingConfig {
      * "You spot a Golden Fish surface from beneath the lava/waves!" — so it covers
      * both the lava and water variants without risking false fires on other chat.
      */
+    @ConfigOption(category = "Triggers", name = "Golden Fish Phrase", desc = "Comma-separated chat substrings that identify the Golden Fish message.")
+    @TextField
+    @ShowIf("goldenFishAlertEnabled")
     private String  goldenFishPhrase = "spot a Golden Fish surface";
     /** Title overlay text shown when the alert fires. Supports § / & colour codes. */
+    @ConfigOption(category = "Triggers", name = "Golden Fish Title", desc = "Title overlay text shown on a Golden Fish match (supports § / & colours).")
+    @TextField
+    @ShowIf("goldenFishAlertEnabled")
     private String  goldenFishTitleText = "§6§lGOLDEN FISH";
     /** Alert sound played when the Golden Fish is detected. */
+    @ConfigOption(category = "Triggers", name = "Golden Fish Sound", desc = "Sound played when the Golden Fish is detected.")
+    @ConfigAccordion(expanded = false)
     private AlarmSound goldenFishSound = new AlarmSound(
             "minecraft:entity.player.levelup", 1.0, 1.2, 4, 20);
 
@@ -236,12 +368,22 @@ public class FishingConfig {
      * re-fire early for zero downtime.
      */
     public static class AbilityConfig {
+        @ConfigOption(name = "Mode", desc = "OFF, CONSTANT (every catch), or AT_CAP (only at sea-creature cap).")
+        @Dropdown
         public AbilityMode mode           = AbilityMode.OFF;
+        @ConfigOption(name = "Hotbar Slot", desc = "1-based hotbar slot of the ability item (1–8).")
+        @Slider(min = 1, max = 8, step = 1)
         public int         slot           = 1;   // 1-based, clamped to 1..8
+        @ConfigOption(name = "Cooldown (s)", desc = "Minimum seconds between auto-uses (tune below the real duration for no downtime).")
+        @Slider(min = 1, max = 600, step = 1)
         public double      cooldownSeconds = 6.0;
     }
 
+    @ConfigOption(category = "Abilities", name = "Fire Veil", desc = "Auto-use config for the Fire Veil ability item.")
+    @ConfigAccordion(expanded = false)
     private AbilityConfig fireVeil = defaultAbility(1, 6.0);
+    @ConfigOption(category = "Abilities", name = "Totem of Corruption", desc = "Auto-use config for the Totem of Corruption.")
+    @ConfigAccordion(expanded = false)
     private AbilityConfig totem    = defaultAbility(2, 300.0);
 
     private static AbilityConfig defaultAbility(int slot, double cooldownSeconds) {
@@ -261,12 +403,26 @@ public class FishingConfig {
     }
 
     // ── Developer ─────────────────────────────────────────────────────────────
+    @ConfigOption(category = "Developer", name = "Debug Mode", desc = "Extra diagnostics.")
+    @Toggle
     private boolean debugMode = false;
+    @ConfigOption(category = "Developer", name = "Log Level", desc = "0=error, 1=warn, 2=info, 3=debug.")
+    @Slider(min = 0, max = 3, step = 1)
+    @OnChange("onLogLevelChanged")
     private int logLevel = PoseidonLogger.LEVEL_WARN;
 
     private FishingConfig() {}
 
     public static FishingConfig getInstance() { return INSTANCE; }
+
+    /** Chosen live-HUD style (never null). */
+    public ConfigStyle getHudStyle() { return hudStyle == null ? ConfigStyle.CUSTOM : hudStyle; }
+
+
+    /** @OnChange hook: the library edits the field directly, so re-apply the level to the logger. */
+    private void onLogLevelChanged() {
+        PoseidonLogger.getInstance().setLogLevel(logLevel);
+    }
 
     // ── AlarmSound ────────────────────────────────────────────────────────────
 
@@ -276,10 +432,20 @@ public class FishingConfig {
      * Browse all vanilla sounds at: https://misode.github.io/sounds/
      */
     public static class AlarmSound {
+        @ConfigOption(name = "Sound ID", desc = "e.g. minecraft:entity.player.levelup")
+        @TextField
         public String soundId;
+        @ConfigOption(name = "Volume", desc = "0.1 – 2.0")
+        @Slider(min = 0.1, max = 2.0, step = 0.05)
         public double volume;
+        @ConfigOption(name = "Pitch", desc = "0.5 – 2.0 (lower = deeper)")
+        @Slider(min = 0.5, max = 2.0, step = 0.05)
         public double pitch;
+        @ConfigOption(name = "Duration (s)", desc = "Total seconds the alarm plays (0 = off/once).")
+        @Slider(min = 0, max = 300, step = 5)
         public int    durationSeconds;
+        @ConfigOption(name = "Interval (ticks)", desc = "Ticks between plays.")
+        @Slider(min = 5, max = 60, step = 5)
         public int    intervalTicks;
 
         public AlarmSound() {}
@@ -328,23 +494,40 @@ public class FishingConfig {
      * (displayed as such in YACL) but accessed as a List internally.
      */
     public static class TriggerLevel {
+        @ConfigOption(name = "Name", desc = "Display name for this trigger (shown as the accordion header).")
+        @TextField
         public String  name     = "";
+        @ConfigOption(name = "Enabled", desc = "Whether this trigger is active.")
+        @Toggle
         public boolean enabled  = true;
         /** Comma-separated substrings to watch for in chat (case-insensitive). */
+        @ConfigOption(name = "Patterns", desc = "Comma-separated chat substrings to watch for (case-insensitive; any match fires).")
+        @TextField
         public String  patterns = "";
+        @ConfigOption(name = "Sound", desc = "Sound played when this trigger fires.")
+        @ConfigAccordion(expanded = false)
         public AlarmSound sound = AlarmSound.defaultBite();
         /** Reserved for future actions (e.g. recast, stop, alert). */
         public String action    = "";
         /** When true, suppress the auto-recast after this trigger fires. */
+        @ConfigOption(name = "Don't Recast", desc = "Suppress the auto-recast after this trigger fires.")
+        @Toggle
         public boolean dontRecast = false;
         /** When true, deactivate the bot (HUD stays open) after this trigger fires. */
+        @ConfigOption(name = "Stop Bot", desc = "Deactivate the bot after this trigger fires (HUD stays open).")
+        @Toggle
         public boolean stopBot    = false;
         /** Show a Minecraft title overlay when this trigger fires. */
+        @ConfigOption(name = "Show Title", desc = "Show a Minecraft title overlay when this trigger fires.")
+        @Toggle
         public boolean showTitle = false;
         /**
          * Text displayed as the MC title when {@code showTitle} is true.
          * Leave blank to use the trigger's Name field instead.
          */
+        @ConfigOption(name = "Title Text", desc = "Title text when Show Title is on (blank = use the Name).")
+        @TextField
+        @ShowIf("showTitle")
         public String  titleText = "";
 
         public TriggerLevel() {}
@@ -371,16 +554,14 @@ public class FishingConfig {
     }
 
     private static List<TriggerLevel> defaultTriggerLevels() {
+        // Triggers are now a dynamic add/remove list — seed one empty, disabled starter.
         List<TriggerLevel> list = new ArrayList<>();
-        // All 5 slots start empty and disabled — user configures them in-game
-        for (int i = 1; i <= 5; i++) {
-            TriggerLevel t = new TriggerLevel();
-            t.enabled  = false;
-            t.name     = "";
-            t.patterns = "";
-            t.sound    = AlarmSound.defaultBite();
-            list.add(t);
-        }
+        TriggerLevel t = new TriggerLevel();
+        t.enabled  = false;
+        t.name     = "";
+        t.patterns = "";
+        t.sound    = AlarmSound.defaultBite();
+        list.add(t);
         return list;
     }
 
@@ -459,6 +640,7 @@ public class FishingConfig {
                     if (loaded.rebootAlertSound != null)
                         this.rebootAlertSound.mergeFrom(loaded.rebootAlertSound,
                                 new AlarmSound("minecraft:block.bell.use", 1.0, 1.0, 300, 40));
+                    this.hudStyle               = loaded.hudStyle != null ? loaded.hudStyle : ConfigStyle.CUSTOM;
                     this.fishingStatsHudVisible = loaded.fishingStatsHudVisible;
                     this.statSpeedHudVisible    = loaded.statSpeedHudVisible;
                     this.statDhcHudVisible      = loaded.statDhcHudVisible;

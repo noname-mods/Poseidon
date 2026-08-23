@@ -1,5 +1,5 @@
 plugins {
-	id 'net.fabricmc.fabric-loom' version '1.16-SNAPSHOT'
+	id 'net.fabricmc.fabric-loom' version '1.17-SNAPSHOT'
 	id 'maven-publish'
 }
 
@@ -32,7 +32,7 @@ dependencies {
 	// mavenLocal (e.g. after publishing latest PlayerAPI) instead of demanding this exact version.
 	implementation "com.playerapi:playerapi:[${project.playerapi_version},)"
 	compileOnly "com.terraformersmc:modmenu:${project.modmenu_version}"
-	implementation "dev.isxander:yet-another-config-lib:${project.yacl_version}"
+	// YACL removed — Poseidon's config screen now uses PlayerAPI's built-in config library.
 }
 
 processResources {

@@ -5,7 +5,7 @@ Named after the Greek god of the sea.
 
 **GitHub:** <https://github.com/noname-mods/Poseidon>
 
-> **Requires [PlayerAPI](https://github.com/noname-mods/PlayerAPI) and [YetAnotherConfigLib](https://modrinth.com/mod/yacl) to run.**  
+> **Requires [PlayerAPI](https://github.com/noname-mods/PlayerAPI) 2.0.0+ and [Fabric API](https://modrinth.com/mod/fabric-api) to run.**  
 > [ModMenu](https://modrinth.com/mod/modmenu) is optional — it adds a settings button to the mod list.
 
 ---
@@ -75,7 +75,7 @@ An in-game overlay (default key: **H**) shows:
 - Last 5 log lines
 
 ### Fully Configurable
-All timings, thresholds, sounds, and toggles are exposed through a YACL config screen. Open it from ModMenu, the `/poseidon` command, or a keybind. No file editing required.
+All timings, thresholds, sounds, and toggles are exposed through a config screen. Open it from ModMenu, the `/poseidon` command, or a keybind. No file editing required.
 
 ---
 
@@ -95,12 +95,11 @@ Type `/poseidon` in chat to open the config screen directly.
 
 ## Installation
 
-1. Install [Fabric Loader](https://fabricmc.net/) for Minecraft 26.1.2
+1. Install [Fabric Loader](https://fabricmc.net/) for Minecraft 26.2
 2. Install [Fabric API](https://modrinth.com/mod/fabric-api)
 3. Install [PlayerAPI](https://github.com/noname-mods/PlayerAPI)
-4. Install [YetAnotherConfigLib](https://modrinth.com/mod/yacl)
-5. Install [ModMenu](https://modrinth.com/mod/modmenu) *(optional)*
-6. Drop `poseidon-*.jar` into your `mods` folder
+4. Install [ModMenu](https://modrinth.com/mod/modmenu) *(optional)*
+5. Drop `poseidon-*.jar` into your `mods` folder
 
 ---
 
@@ -108,7 +107,7 @@ Type `/poseidon` in chat to open the config screen directly.
 
 | Minecraft | Fabric Loader | Java |
 |---|---|---|
-| 26.1.2 | ≥ 0.19.2 | 21 |
+| 26.2 | ≥ 0.19.3 | 25 |
 
 ---
 

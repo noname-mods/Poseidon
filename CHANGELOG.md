@@ -4,7 +4,16 @@
 
 ---
 
-## [1.2.0] — In development (beta, not yet released)
+## [1.2.1] - 2026-08-22
+
+### Changed
+- **Minecraft 26.2** support.
+- **New config screen** — Poseidon now uses PlayerAPI's built-in config library; the **YACL** dependency is gone.
+- Requires **PlayerAPI 2.0.0**.
+
+---
+
+## [1.2.0]
 
 ### Added
 - **Chat-confirmed, mob-anchored sea-creature detection.** Identifies the exact creature from its catch

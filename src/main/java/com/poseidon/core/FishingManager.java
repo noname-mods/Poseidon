@@ -298,7 +298,7 @@ public class FishingManager {
         // ── GUI-close lock ────────────────────────────────────────────────────
         // Track open→closed transitions and arm a random delay so the bot never
         // reacts to a bite the instant a GUI is dismissed.
-        boolean guiOpen = mc.screen != null;
+        boolean guiOpen = mc.gui.screen() != null;
         if (guiOpen) {
             guiWasOpen = true;
         } else if (guiWasOpen) {
@@ -612,7 +612,7 @@ public class FishingManager {
      * a cast every {@link #IDLE_TIMEOUT_TICKS} ticks while you're in a menu or off the rod.
      */
     private static boolean isReadyToCast(Minecraft mc) {
-        if (mc.screen != null) return false;
+        if (mc.gui.screen() != null) return false;
         if (mc.player == null) return false;
         // Identify the rod by its stable SkyBlock id (contains "ROD"), not the renamed display name.
         return com.playerapi.PlayerInfo.getHeldItem().skyblockId().contains("ROD");
@@ -1371,6 +1371,6 @@ public class FishingManager {
         if (!active) return false;
         if (state != FishingState.WAITING && state != FishingState.BITING) return false;
         Minecraft mc = Minecraft.getInstance();
-        return mc.screen == null; // never block inside a GUI
+        return mc.gui.screen() == null; // never block inside a GUI
     }
 }
