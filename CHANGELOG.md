@@ -4,6 +4,21 @@
 
 ---
 
+## [1.2.2] - 2026-08-23
+
+### Fixed
+- **False "bobber not in water" recasts on short casts.** The recovery could mistake the bobber's own
+  water-entry splash for the not-in-water particle burst when the bobber landed straight down / very close —
+  it lingered in place long enough to briefly cross the particle-count threshold, interrupting normal
+  fishing with a constant reel-in/recast loop. It now requires the cluster to persist **continuously (~3s)**
+  before recovering: a genuinely stuck bobber emits the burst the whole time, while a transient entry
+  splash fades first.
+- **Log Level config.** It was a bare 0–3 number slider whose labels were reversed relative to the logger's
+  actual levels. It's now a labelled **Error / Warn / Info / Debug** dropdown mapped to the correct levels.
+  Existing configs migrate automatically (schema v19).
+
+---
+
 ## [1.2.1] - 2026-08-23
 
 ### Changed

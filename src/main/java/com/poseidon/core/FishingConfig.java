@@ -72,7 +72,7 @@ public class FishingConfig {
      *  16 — log split into its own movable HUD element (logVisible + logHud layout)
      *  17 — notInWaterRecastEnabled (default true) + logBobberParticles (default false)
      */
-    private static final int CURRENT_VERSION = 18;
+    private static final int CURRENT_VERSION = 19;
 
     /** Hypixel-standardised sea creature cap — same on every island. */
     public static final int SEA_CREATURE_CAP = 10;
@@ -406,10 +406,31 @@ public class FishingConfig {
     @ConfigOption(category = "Developer", name = "Debug Mode", desc = "Extra diagnostics.")
     @Toggle
     private boolean debugMode = false;
-    @ConfigOption(category = "Developer", name = "Log Level", desc = "0=error, 1=warn, 2=info, 3=debug.")
-    @Slider(min = 0, max = 3, step = 1)
+    @ConfigOption(category = "Developer", name = "Log Level", desc = "How much detail the bot logs (console + file).")
+    @Dropdown
     @OnChange("onLogLevelChanged")
-    private int logLevel = PoseidonLogger.LEVEL_WARN;
+    private LogLevel logLevel = LogLevel.WARN;
+
+    /**
+     * Log verbosity, shown as a labelled dropdown. Each constant maps to the matching {@link PoseidonLogger}
+     * level, so selecting a name always sets the correct level (the old int slider's labels were reversed
+     * relative to the logger's constants). Ordered least→most verbose.
+     */
+    public enum LogLevel {
+        ERROR("Error", PoseidonLogger.LEVEL_ERROR),
+        WARN ("Warn",  PoseidonLogger.LEVEL_WARN),
+        INFO ("Info",  PoseidonLogger.LEVEL_INFO),
+        DEBUG("Debug", PoseidonLogger.LEVEL_DEBUG);
+        public final String label;
+        public final int level;
+        LogLevel(String label, int level) { this.label = label; this.level = level; }
+        @Override public String toString() { return label; }
+        /** Map a raw {@link PoseidonLogger} level int back to the enum (defaults to WARN if none match). */
+        public static LogLevel fromLevel(int lv) {
+            for (LogLevel e : values()) if (e.level == lv) return e;
+            return WARN;
+        }
+    }
 
     private FishingConfig() {}
 
@@ -421,7 +442,7 @@ public class FishingConfig {
 
     /** @OnChange hook: the library edits the field directly, so re-apply the level to the logger. */
     private void onLogLevelChanged() {
-        PoseidonLogger.getInstance().setLogLevel(logLevel);
+        PoseidonLogger.getInstance().setLogLevel(logLevel.level);
     }
 
     // ── AlarmSound ────────────────────────────────────────────────────────────
@@ -587,8 +608,8 @@ public class FishingConfig {
                     this.recastDelayMinMs   = loaded.recastDelayMinMs  > 0 ? loaded.recastDelayMinMs  : 500;
                     this.recastDelayMaxMs   = loaded.recastDelayMaxMs  > 0 ? loaded.recastDelayMaxMs  : 1500;
                     this.debugMode          = loaded.debugMode;
-                    this.logLevel           = loaded.logLevel;
-                    PoseidonLogger.getInstance().setLogLevel(this.logLevel);
+                    this.logLevel           = loaded.logLevel != null ? loaded.logLevel : LogLevel.WARN;
+                    PoseidonLogger.getInstance().setLogLevel(this.logLevel.level);
 
                     if (loaded.biteAlertSound != null)
                         this.biteAlertSound.mergeFrom(loaded.biteAlertSound, AlarmSound.defaultBite());
@@ -705,12 +726,26 @@ public class FishingConfig {
         if (version < 16) json = migrateV15toV16(json);
         if (version < 17) json = migrateV16toV17(json);
         if (version < 18) json = migrateV17toV18(json);
+        if (version < 19) json = migrateV18toV19(json);
         json.addProperty("configVersion", CURRENT_VERSION);
         return json;
     }
 
     private static JsonObject migrateV17toV18(JsonObject json) {
         if (!json.has("abilityActionDelayMs")) json.addProperty("abilityActionDelayMs", 400);
+        return json;
+    }
+
+    /**
+     * v18 → v19: {@code logLevel} changed from an int slider (whose labels were reversed relative to
+     * PoseidonLogger's constants) to a {@code LogLevel} enum. Map the old numeric value through the logger
+     * constants to the enum name so it deserializes correctly; anything that doesn't map falls back to WARN.
+     */
+    private static JsonObject migrateV18toV19(JsonObject json) {
+        if (json.has("logLevel") && json.get("logLevel").isJsonPrimitive()
+                && json.get("logLevel").getAsJsonPrimitive().isNumber()) {
+            json.addProperty("logLevel", LogLevel.fromLevel(json.get("logLevel").getAsInt()).name());
+        }
         return json;
     }
 
@@ -1028,10 +1063,10 @@ public class FishingConfig {
     public boolean isDebugMode() { return debugMode; }
     public void setDebugMode(boolean v) { debugMode = v; save(); }
 
-    public int getLogLevel() { return logLevel; }
+    public int getLogLevel() { return logLevel.level; }
     public void setLogLevel(int v) {
-        logLevel = v;
-        PoseidonLogger.getInstance().setLogLevel(v);
+        logLevel = LogLevel.fromLevel(v);
+        PoseidonLogger.getInstance().setLogLevel(logLevel.level);
         save();
     }
 }

@@ -106,6 +106,14 @@ public class FishingManager {
     private static final int NOT_IN_WATER_SETTLE_TICKS = 30;
     /** Minimum gap between forced not-in-water recasts (~3s), so we never spam. */
     private static final int NOT_IN_WATER_COOLDOWN_TICKS = 60;
+    /**
+     * The cluster must stay above {@link #NOT_IN_WATER_MIN_HITS} <b>continuously</b> for this many ticks
+     * (~3s) before we treat it as genuinely not-in-water. A real stuck bobber emits the blue burst
+     * continuously; the bobber's own water-entry splash is a one-off that fades — on a short / straight-down
+     * cast it lingers in place long enough to cross the count threshold for a moment, but not to stay above
+     * it this whole window. This is what stops those false recasts from interrupting normal fishing.
+     */
+    private static final int NOT_IN_WATER_CONFIRM_TICKS = 60;
 
     // ── Fishing state ─────────────────────────────────────────────────────────
     private boolean active = false;
@@ -137,6 +145,12 @@ public class FishingManager {
 
     /** Last tick a "not in water" forced recast fired (cooldown gate). */
     private long lastNotInWaterRecastTick = Long.MIN_VALUE / 2;
+    /**
+     * First tick the not-in-water particle cluster was seen continuously ({@code -1} = not currently
+     * clustered). Recovery only fires once it has stayed clustered for {@link #NOT_IN_WATER_CONFIRM_TICKS};
+     * any tick the cluster drops below threshold resets this, so a transient entry-splash never confirms.
+     */
+    private long notInWaterSince = -1;
     /** Throttle for the particle-type debug log. */
     private long lastParticleLogTick = Long.MIN_VALUE / 2;
 
@@ -323,6 +337,7 @@ public class FishingManager {
                     bobberMissingTicks = 0;
                     hookStuckFired    = false;
                     idleNoBobberSince = -1; // bobber landed — recovery watchdog no longer needed
+                    notInWaterSince   = -1; // fresh cast — reset the not-in-water confirmation timer
                     castTick          = currentTick; // start slugfish / general cast timer
                     // Bait is consumed on cast — read it now so alerts fire at the right moment
                     tickBait();
@@ -386,6 +401,7 @@ public class FishingManager {
                     lastBobberY = mc.player.fishing.getY();
                     lastBobberZ = mc.player.fishing.getZ();
                     state = FishingState.BITING;
+                    notInWaterSince = -1; // got a bite — definitively in water, clear any pending confirm
                     playBiteAlert();
                     scheduleReelIn();
                 } else {
@@ -687,17 +703,32 @@ public class FishingManager {
 
         int hits = ParticleWatch.getInstance()
                 .countNear(bx, by, bz, NOT_IN_WATER_RADIUS, since, NOT_IN_WATER_PARTICLES);
-        if (hits >= NOT_IN_WATER_MIN_HITS) {
-            lastNotInWaterRecastTick = now;
-            PoseidonLogger.getInstance().logWarn("[water] bobber not in water (" + hits
-                    + " blue particles) — reeling in and recasting");
-            // Reel in the stuck bobber, drop to IDLE, then recast (scheduleRecast casts only when IDLE).
-            MovementActions.tapKey("use", 100);
-            state = FishingState.IDLE;
-            castTick = -1;
-            idleNoBobberSince = now; // reset the recovery watchdog so it doesn't also fire
-            scheduleRecast(cfg);
+
+        if (hits < NOT_IN_WATER_MIN_HITS) {
+            // Cluster gone (or never formed) — a transient entry splash. Reset the confirmation timer.
+            notInWaterSince = -1;
+            return;
         }
+
+        // Clustered this tick. Require it to stay clustered continuously for the confirm window before
+        // acting — a real not-in-water bobber emits the burst the whole time; a short-cast entry splash
+        // that briefly piles up in one spot fades before the window elapses.
+        if (notInWaterSince < 0) {
+            notInWaterSince = now; // first tick of a sustained cluster — start confirming, don't act yet
+            return;
+        }
+        if (now - notInWaterSince < NOT_IN_WATER_CONFIRM_TICKS) return; // still confirming
+
+        lastNotInWaterRecastTick = now;
+        notInWaterSince = -1;
+        PoseidonLogger.getInstance().logWarn("[water] bobber not in water (" + hits
+                + " blue particles, sustained " + NOT_IN_WATER_CONFIRM_TICKS + "t) — reeling in and recasting");
+        // Reel in the stuck bobber, drop to IDLE, then recast (scheduleRecast casts only when IDLE).
+        MovementActions.tapKey("use", 100);
+        state = FishingState.IDLE;
+        castTick = -1;
+        idleNoBobberSince = now; // reset the recovery watchdog so it doesn't also fire
+        scheduleRecast(cfg);
     }
 
     // ── Sea creature tracking ─────────────────────────────────────────────────
