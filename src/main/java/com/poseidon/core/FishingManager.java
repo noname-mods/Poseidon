@@ -51,7 +51,6 @@ public class FishingManager {
      * Ticks after a reel-in before the proximity <em>fallback</em> scan runs. Long enough for the
      * catch chat line to arrive and bind precisely; the fallback is skipped if it did.
      */
-    private static final int FALLBACK_SCAN_DELAY_TICKS = 30;
     /** How often (in ticks) to remove creatures that have disappeared. */
     private static final int CLEANUP_PERIOD_TICKS = 40;
     /**
@@ -522,17 +521,10 @@ public class FishingManager {
                     caughtThisWindow  = false;
                     pendingDoubleHook = false;
                     catchBobberX = bx; catchBobberY = by; catchBobberZ = bz;
-
-                    // Fallback: if no known catch line identified the creature in time (an unlisted
-                    // creature, or no line at all), fall back to the old proximity scan so it's
-                    // still tracked. Skipped when the chat line already bound precisely.
-                    Scheduler.schedule(FALLBACK_SCAN_DELAY_TICKS, () -> {
-                        if (caughtThisWindow) return;
-                        caughtThisWindow = true;
-                        PoseidonLogger.getInstance().logInfo(
-                                "[sc] no catch line matched — proximity fallback scan");
-                        scanForNewCreatures(bx, by, bz, null, pendingDoubleHook ? 2 : 1);
-                    });
+                    // Sea-creature binding is driven ENTIRELY by the catch chat line (handleCatchMessage):
+                    // a creature is tracked only when a known catch line identifies it. The old proximity
+                    // fallback was removed — it bound a nearby mob on every catch with no SC line (junk,
+                    // normal fish, etc.), producing phantom sea creatures.
                 }
 
                 // Reset state after the reel-in window.
@@ -791,12 +783,12 @@ public class FishingManager {
     }
 
     /**
-     * Binds a chat-matched catch, retrying the scan a few times if the plate hasn't spawned yet. A matched
-     * catch has <b>no</b> proximity fallback (the fallback is disabled once {@code caughtThisWindow}
-     * latches), so a single shot would silently miss when catches come in fast and the nameplate entity
-     * lags a few ticks behind the chat line — exactly the "two catches within a second, count ends up off"
-     * case. We re-scan every {@link #SCAN_RETRY_INTERVAL} ticks until the target(s) bind or attempts run
-     * out; the already-tracked mob ids and the remaining count keep it from ever over-adding.
+     * Binds a chat-matched catch, retrying the scan a few times if the plate hasn't spawned yet. Binding
+     * only ever happens from a matched catch line (there is no proximity fallback), so a single shot would
+     * silently miss when catches come in fast and the nameplate entity lags a few ticks behind the chat
+     * line — exactly the "two catches within a second, count ends up off" case. We re-scan every
+     * {@link #SCAN_RETRY_INTERVAL} ticks until the target(s) bind or attempts run out; the already-tracked
+     * mob ids and the remaining count keep it from ever over-adding.
      */
     private void scanForCatchWithRetry(double bx, double by, double bz, String target,
                                        int remaining, int attemptsLeft) {
@@ -948,7 +940,9 @@ public class FishingManager {
 
         if (!r.matched()) {
             // Not a known catch line (or the standalone Double Hook line). Leave the window open — the
-            // real creature line may still be coming, and the proximity fallback covers unlisted ones.
+            // real creature line may still be coming. Nothing is bound from a non-matching line, so junk /
+            // normal catches (no SC line) no longer add a phantom creature. Unlisted creatures simply go
+            // untracked until their catch line is added to the registry.
             PoseidonLogger.getInstance().logDebug(
                     "[sc] no creature bound from: \"" + SeaCreatureCatches.normalized(message) + "\"");
             return;

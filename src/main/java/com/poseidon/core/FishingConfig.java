@@ -12,6 +12,7 @@ import com.playerapi.config.annotations.ConfigLayout;
 import com.playerapi.config.annotations.ConfigList;
 import com.playerapi.config.annotations.ConfigOption;
 import com.playerapi.config.annotations.Dropdown;
+import com.playerapi.config.annotations.InfoText;
 import com.playerapi.config.annotations.OnChange;
 import com.playerapi.config.annotations.ShowIf;
 import com.playerapi.config.annotations.Slider;
@@ -144,6 +145,10 @@ public class FishingConfig {
      * live-editable {@code config/poseidon/sea_creature_catches.json} instead of the
      * bundled default. Off for normal use. See {@link SeaCreatureCatches}.
      */
+    @ConfigOption(category = "Developer", name = "&c&lDeveloper", desc =
+            "&7Testing & diagnostic options — leave these &loff&r&7 for normal play.")
+    @InfoText
+    private transient String devNote = "";
     @ConfigOption(category = "Developer", name = "Catch Registry Debug JSON", desc = "Read the sea-creature catch registry from the live-editable JSON instead of the bundled default.")
     @Toggle
     private boolean catchRegistryDebugJson = false;

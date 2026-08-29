@@ -4,6 +4,21 @@
 
 ---
 
+## [1.2.3] - 2026-08-29
+
+### Changed
+- **Hypixel-only gate.** Poseidon now stays fully inert unless you're connected to Hypixel (detected from
+  the server address you connected to). It's a Hypixel SkyBlock tool, so it won't try to act on other
+  servers. Requires PlayerAPI 2.1.0.
+
+### Fixed
+- **Phantom sea creatures on non-SC catches.** Removed the old proximity fallback scan, which bound a
+  nearby mob as a sea creature after any catch that produced no sea-creature line (junk, normal fish, …).
+  Sea-creature tracking is now driven entirely by the catch chat line — a creature is tracked only when a
+  known catch line identifies it.
+
+---
+
 ## [1.2.2] - 2026-08-23
 
 ### Fixed

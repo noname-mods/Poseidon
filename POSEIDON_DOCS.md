@@ -1,8 +1,8 @@
 # Poseidon — Design & Documentation
 
-**Version:** 1.2.2 (config schema v19)
+**Version:** 1.2.3 (config schema v19)
 **Platform:** Fabric 26.2, Java 25
-**Dependencies:** PlayerAPI 2.0.0+, Fabric API, ModMenu (optional)
+**Dependencies:** PlayerAPI 2.1.0+, Fabric API, ModMenu (optional)
 **Mod ID:** `poseidon`
 **Entry point:** `com.poseidon.PoseidonMod`
 **Config file:** `<game_dir>/config/poseidon/config.json`

@@ -112,6 +112,12 @@ public class PoseidonMod implements ClientModInitializer {
             }
         }
 
+        // Hypixel-only mod: stay fully inert off Hypixel (disable the bot if it was active).
+        if (!com.playerapi.HypixelInfo.isOnHypixel()) {
+            if (FishingManager.getInstance().isActive()) FishingManager.getInstance().setActive(false);
+            return;
+        }
+
         FishingManager.getInstance().tick();
         RebootAlertManager.getInstance().tick();
         handleKeybinds();
